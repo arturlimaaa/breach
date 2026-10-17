@@ -1,0 +1,16 @@
+{
+  "system": "D",
+  "episodes": [
+    {"id": "h1-s1", "task": "h1", "server": "grid/vanilla", "change": null, "seed": 1, "success": true, "actions": 22, "contradictions": 0, "actions_after_contradiction": null, "immediate_repeat": null, "recovery_latency": null, "text_model_calls": 0, "tokens": 0},
+    {"id": "h2-s1", "task": "h2", "server": "grid/vanilla", "change": null, "seed": 1, "success": false, "actions": 300, "contradictions": 0, "actions_after_contradiction": null, "immediate_repeat": null, "recovery_latency": null, "text_model_calls": 0, "tokens": 0},
+    {"id": "hc-crafting_table-swap-planks-log-s1", "task": "hc", "server": "grid/crafting_table-swap-planks-log", "change": "crafting_table-swap-planks-log", "seed": 1, "success": true, "actions": 19, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 12, "text_model_calls": 1, "tokens": 2318},
+    {"id": "hc-torch-add-cobblestone-s1", "task": "hc", "server": "grid/torch-add-cobblestone", "change": "torch-add-cobblestone", "seed": 1, "success": true, "actions": 29, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 5, "text_model_calls": 1, "tokens": 2276},
+    {"id": "hc-wooden_pickaxe-swap-planks-log-s1", "task": "hc", "server": "grid/wooden_pickaxe-swap-planks-log", "change": "wooden_pickaxe-swap-planks-log", "seed": 1, "success": true, "actions": 28, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 9, "text_model_calls": 1, "tokens": 2402},
+    {"id": "hc-stone_pickaxe-swap-cobblestone-log-s1", "task": "hc", "server": "grid/stone_pickaxe-swap-cobblestone-log", "change": "stone_pickaxe-swap-cobblestone-log", "seed": 1, "success": true, "actions": 50, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 21, "text_model_calls": 2, "tokens": 5130},
+    {"id": "hc-furnace-add-coal-s1", "task": "hc", "server": "grid/furnace-add-coal", "change": "furnace-add-coal", "seed": 1, "success": true, "actions": 60, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 8, "text_model_calls": 1, "tokens": 2190},
+    {"id": "hr-stick-count-2-s1", "task": "hr", "server": "grid/stick-count-2", "change": "stick-count-2", "seed": 1, "success": true, "actions": 30, "contradictions": 1, "actions_after_contradiction": 0, "immediate_repeat": 0, "recovery_latency": 17, "text_model_calls": 1, "tokens": 2265},
+    {"id": "hs-stick-count-2-s1", "task": "hs", "server": "grid/stick-count-2", "change": "stick-count-2", "seed": 1, "success": true, "actions": 26, "contradictions": 0, "actions_after_contradiction": null, "immediate_repeat": null, "recovery_latency": null, "text_model_calls": 0, "tokens": 0}
+  ],
+  "aggregate": {"holdout_success": 0.889, "actions_per_success": 33.0, "actions_after_contradiction": 0.0, "immediate_repeat_rate": 0.0, "recovery_latency_mean": 12.0, "recovery_latency_worst": 21, "text_model_calls_per_episode": 0.778},
+  "worst_case": {"episode": "hc-stone_pickaxe-swap-cobblestone-log-s1", "recovery_latency": 21}
+}
