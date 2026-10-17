@@ -20,7 +20,7 @@ CONTRADICTED = {
 }
 DROPPED = {
     "id": "stone-drop-nothing-hc-s1", "task": "hc", "server": "grid/stone-drop-nothing", "change": "stone-drop-nothing", "seed": 1,
-    "goal": "stone_pickaxe", "count": 1, "inventory": {"wooden_pickaxe": 1}, "success": False, "actions": 3, "reason": "budget",
+    "goal": "stone_pickaxe", "count": 1, "inventory": {"wooden_pickaxe": 1}, "success": False, "actions": 4, "reason": "budget",
 }
 CLEAN = {
     "id": "t1-s1", "task": "t1", "server": "grid/vanilla", "change": None, "seed": 1,
@@ -29,7 +29,7 @@ CLEAN = {
 
 
 def step(action, target, rule_id, predicted, observed, verdict, **extra):
-    cls = "tolerant" if action == "move" else "exact"
+    cls = {"move": "tolerant", "look": "ignored"}.get(action, "exact")
     return {"action": action, "target": target, "rule_id": rule_id, "predicted": predicted, "observed": observed,
             "cls": cls, "verdict": verdict, "test": False, **extra}
 
@@ -46,9 +46,10 @@ LOGS = {
         step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
         step("craft", "stick", "craft:stick#1", STICK_2, STICK_2, "match"),
     ],
-    # The move between two mines does not hide the repeat. It never recovers.
+    # A look and a move between two mines of the same block do not hide the repeat. It never recovers.
     DROPPED["id"]: [
         step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+        step("look", None, None, {}, {}, "ignored"),
         step("move", "east", None, {}, {}, "match"),
         step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
     ],

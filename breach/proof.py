@@ -53,8 +53,8 @@ def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> 
     def same(t: Transition) -> bool:
         return (t.action, t.target) == (first.action, first.target)
 
-    # Mining the same block again needs moves first, so the repeat is judged on the next non-move step.
-    after = [t for t in rest if t.action != "move"]
+    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither.
+    after = [t for t in rest if t.action not in ("move", "look")]
     return record | {
         "actions_after_contradiction": sum(t.rule_id == first.rule_id for t in after),
         "immediate_repeat": int(bool(after) and same(after[0])),
