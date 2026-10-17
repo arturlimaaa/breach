@@ -54,22 +54,6 @@ def default_choose(state: State, options: dict[str, Option]) -> str:
     return min(options, key=rank)
 
 
-def step_and_log(world: GridWorld, log: TransitionLog, episode: str, action: Action, rule: Rule | None = None) -> StepResult:
-    """Take one action and log it the executor's way, predicting the bundled `rule`'s delta."""
-    before = world.observe()
-    result = world.step(action)
-    predicted = dict(rule.delta) if rule else {}
-    observed = diff(before.inventory, result.observation.inventory)
-    target = rule.target if rule else action.target
-    cls = classify(action.name, target)
-    log.append(Transition(
-        episode, world.actions, world.server, obs_hash(before), action.name, target,
-        f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
-        verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
-    ))
-    return result
-
-
 def run_episode_b(
     world: GridWorld,
     log: TransitionLog,
@@ -120,6 +104,22 @@ def run_episode_b(
             cooldown[key] = step + COOLDOWN
             failures = [*failures, f"{key}: {result.message}"]
     return EpisodeResultB(world.success, world.actions, calls, "goal" if world.success else "budget")
+
+
+def step_and_log(world: GridWorld, log: TransitionLog, episode: str, action: Action, rule: Rule | None = None) -> StepResult:
+    """Take one action and log it the executor's way, predicting the bundled `rule`'s delta."""
+    before = world.observe()
+    result = world.step(action)
+    predicted = dict(rule.delta) if rule else {}
+    observed = diff(before.inventory, result.observation.inventory)
+    target = rule.target if rule else action.target
+    cls = classify(action.name, target)
+    log.append(Transition(
+        episode, world.actions, world.server, obs_hash(before), action.name, target,
+        f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
+        verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
+    ))
+    return result
 
 
 def immediate_repeat_rate(log: TransitionLog) -> float:
