@@ -97,8 +97,9 @@ Replaying the log reproduces every verdict. Log length equals the action count.
 Observation: `{server, position: {x,y,z}, inventory: {item: n}, visible:
 [{x,y,z,block}], action_count, budget, done, success}`. `events` lists
 death, damage, despawn seen during the step (drives `quarantined`).
-Actions: `move(direction|toward block)`, `mine`, `craft(item)`,
-`probe(item)`, `place(item)`, `look`. `place` puts a held block on an
+Actions: `move(direction | toward block | heading and blocks | to x,y,z)`,
+`mine`, `craft(item)`, `probe(item)`, `place(item)`, `look(block type,
+optional)`. `place` puts a held block on an
 adjacent solid spot; a 3×3 craft or probe needs a crafting table within 4
 blocks and never auto-places. Crafting takes `grid` as an item multiset; the
 adapter lays known vanilla shapes out correctly (shape knowledge only, the
