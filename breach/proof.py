@@ -103,6 +103,15 @@ def worst_case(episodes: list[dict]) -> dict:
     return {"episode": worst["id"], "recovery_latency": worst["recovery_latency"]}
 
 
+def by_system(episodes: list[dict]) -> dict[str, dict]:
+    """What the site renders per system: its worst recovery and its mean row over every episode."""
+    result = {}
+    for system in sorted({e["system"] for e in episodes}):
+        own = [e for e in episodes if e["system"] == system]
+        result[system] = {"worst_case": worst_case(own), "aggregate": summarize(system, "all", own)}
+    return result
+
+
 def read_run(run_dir: Path) -> list[dict]:
     """Measured episodes of the one system whose manifest.json sits in `run_dir`."""
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -119,14 +128,7 @@ def proof(run_dir: Path) -> dict:
     if not manifests:
         raise ValueError(f"no run under {run_dir}: expected manifest.json and one <episode>.jsonl per episode")
     episodes = [e for manifest in manifests for e in read_run(manifest.parent)]
-    systems = {s: [e for e in episodes if e["system"] == s] for s in sorted({e["system"] for e in episodes})}
-    result = {
-        "episodes": episodes,
-        "rows": rows(episodes),
-        # Keyed by system for the site: the slowest recovery, and the mean row over every episode.
-        "worst_case": {s: worst_case(own) for s, own in systems.items()},
-        "aggregate": {s: summarize(s, "all", own) for s, own in systems.items()},
-    }
+    result = {"episodes": episodes, "rows": rows(episodes), "systems": by_system(episodes)}
     (run_dir / "proof.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 
