@@ -5,3 +5,4 @@ runs/
 adapter/node_modules/
 adapter/server/
 .playwright-mcp/
+third_party/
