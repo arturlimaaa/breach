@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from dataclasses import fields
+from math import inf
 from pathlib import Path
 from statistics import fmean
 
@@ -25,9 +27,17 @@ def read_log(path: Path) -> TransitionLog:
 
 
 def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> dict:
-    """The manifest entry plus what the log says about the first contradiction and the text-model cost."""
+    """The manifest entry, once the log confirms its action count and success, plus the first contradiction's metrics and the text-model cost."""
     if len(log) != entry["actions"]:
         raise ValueError(f"episode {entry['id']}: {len(log)} logged transitions for {entry['actions']} actions; the log must have one line per action")
+    held = Counter(entry["inventory"])
+    for t in log:
+        held.update(t.observed)
+    if (held[entry["goal"]] >= entry["count"]) != entry["success"]:
+        raise ValueError(
+            f"episode {entry['id']}: the log ends holding {held[entry['goal']]} of {entry['count']} {entry['goal']},"
+            f" but the manifest says success is {entry['success']}"
+        )
     hits = log.contradictions()
     record = {
         **entry, "system": system, "contradictions": len(hits), "actions_after_contradiction": None,
@@ -43,8 +53,8 @@ def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> 
     def same(t: Transition) -> bool:
         return (t.action, t.target) == (first.action, first.target)
 
-    # Mining the same block again needs moves first, so the repeat is judged on the next non-move step.
-    after = [t for t in rest if t.action != "move"]
+    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither.
+    after = [t for t in rest if t.action not in ("move", "look")]
     return record | {
         "actions_after_contradiction": sum(t.rule_id == first.rule_id for t in after),
         "immediate_repeat": int(bool(after) and same(after[0])),
@@ -84,6 +94,15 @@ def rows(episodes: list[dict]) -> list[dict]:
     ]
 
 
+def worst_case(episodes: list[dict]) -> dict:
+    """The slowest recovery; one that never happened ranks worst. The episode is None when nothing contradicted."""
+    hit = [e for e in episodes if e["contradictions"]]
+    if not hit:
+        return {"episode": None, "recovery_latency": None}
+    worst = max(hit, key=lambda e: inf if e["recovery_latency"] is None else e["recovery_latency"])
+    return {"episode": worst["id"], "recovery_latency": worst["recovery_latency"]}
+
+
 def read_run(run_dir: Path) -> list[dict]:
     """Measured episodes of the one system whose manifest.json sits in `run_dir`."""
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -100,7 +119,14 @@ def proof(run_dir: Path) -> dict:
     if not manifests:
         raise ValueError(f"no run under {run_dir}: expected manifest.json and one <episode>.jsonl per episode")
     episodes = [e for manifest in manifests for e in read_run(manifest.parent)]
-    result = {"episodes": episodes, "rows": rows(episodes)}
+    systems = {s: [e for e in episodes if e["system"] == s] for s in sorted({e["system"] for e in episodes})}
+    result = {
+        "episodes": episodes,
+        "rows": rows(episodes),
+        # Keyed by system for the site: the slowest recovery, and the mean row over every episode.
+        "worst_case": {s: worst_case(own) for s, own in systems.items()},
+        "aggregate": {s: summarize(s, "all", own) for s, own in systems.items()},
+    }
     (run_dir / "proof.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 
