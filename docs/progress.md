@@ -25,7 +25,9 @@ and the orchestrator read the output, then the branch is merged into
 | M4 live smoke (T1's steps by curl against the running server) | `al/m4-adapter` | running | transcript with ok, output, inventory delta per step; border set from the bot |
 | M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
 | M3 system A (Nemotron plan per task, no memory) | `al/m3-system-a` | running | scripted-`complete` tests; at least one call per task |
-| M4 HttpWorld glue + live CLI | `al/m4-httpworld` | running | Executor over a fake HTTP adapter reproduces the grid T1 log |
+| M4 HttpWorld glue + live CLI | `al/m4-httpworld` | merged 00f13ca, 107 tests | Executor and B over a fake HTTP adapter reproduce the grid T1 and H2 logs; `python3 -m breach.live runs/<name> --task T1` |
+| M4 live travel semantics (action fields, `move toward` on pathing worlds, fake adapter contract) | `al/m4-live-travel` | running | T1 over the fake adapter with one move per travel; grid logs unchanged |
+| M4 station placement (grid `place`, executor near-check, planner rule for a placed table, B menu) | after recovery lands | queued | live T1 reaches the 3x3 craft |
 
 Follow-ups not yet assigned: B explores with the blind spiral, so B fails H2 on
 the grid while rmalde's real harness has ring samples; give B the `look`

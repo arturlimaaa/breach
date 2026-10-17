@@ -44,12 +44,11 @@ fi
 
 cat > start.sh <<'EOF'
 #!/bin/sh
-# The server queues these commands and runs them once the world has loaded; type further commands here.
-# A console command runs at the world spawn, so `~ ~` centers the border there.
+# The console reads these lines before the world loads, so they can only be commands that need no world.
+# The adapter sets the world border on each reset. Type further commands here.
 cd "$(dirname "$0")"
 {
-  printf '%s\n' 'gamerule doDaylightCycle false' 'gamerule keepInventory true' \
-    'worldborder center ~ ~' 'worldborder set 256' 'difficulty peaceful'
+  printf '%s\n' 'gamerule doDaylightCycle false' 'gamerule keepInventory true' 'difficulty peaceful'
   cat
 } | java -Xmx2G -jar server.jar nogui
 EOF

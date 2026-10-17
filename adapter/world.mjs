@@ -8,7 +8,7 @@ import { clear, fill, normalize, slotsFor } from './craft.mjs'
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
 const PATH_MS = 20_000
-const COLLECT_MS = 3_000
+const INVENTORY_MS = 3_000 // how long mine and place wait for their inventory change to arrive
 const RESET_MS = 5_000
 const OPEN_MS = 5_000
 const RADIUS = 8
@@ -45,12 +45,14 @@ export class MineflayerWorld {
     this.stepMs = stepMs
   }
 
-  // Returns the commands issued, so a run manifest can record the start state.
+  // Returns the commands issued, so a run manifest can record the start state. The border is set here because a
+  // command piped into the server console before the world loads has no world to act on.
   // ponytail: clears and refills the inventory only; restart the server from the saved world for fresh blocks.
   async reset (inventory) {
     const { bot } = this
     if (bot.currentWindow) await bot.closeWindow(bot.currentWindow)
-    bot.chat('/clear')
+    const setup = [`/worldborder center ${bot.spawnPoint.x} ${bot.spawnPoint.z}`, '/worldborder set 256', '/clear']
+    for (const command of setup) bot.chat(command)
     // Wait for the clear to land, or an inventory that already matches the task would pass before it.
     if (!await settle(() => bot.inventory.items().length === 0, RESET_MS)) {
       throw new Error('/clear did not land; the bot needs op level 2')
@@ -60,7 +62,7 @@ export class MineflayerWorld {
     if (!await settle(() => isDeepStrictEqual(this.inventory(), inventory), RESET_MS)) {
       throw new Error(`inventory is ${JSON.stringify(this.inventory())} after /give`)
     }
-    return ['/clear', ...gives].join('; ')
+    return [...setup, ...gives].join('; ')
   }
 
   position () {
@@ -132,7 +134,7 @@ export class MineflayerWorld {
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
     await bot.dig(block)
-    await settle(() => !isDeepStrictEqual(this.inventory(), before), COLLECT_MS)
+    await settle(() => !isDeepStrictEqual(this.inventory(), before), INVENTORY_MS)
     // dig() clears the block locally at once; a dig the server refused comes back as a block update during the wait.
     const now = bot.blockAt(block.position)
     const removed = now !== null && normalize(now.name) !== target
@@ -155,11 +157,12 @@ export class MineflayerWorld {
       bot.blockAt(at.offset(0, -1, 0))?.boundingBox === 'block' &&
       Math.max(Math.abs(at.x + 0.5 - position.x), Math.abs(at.z + 0.5 - position.z)) >= 0.8)
     if (!spot) throw new Error(`no adjacent solid spot for ${target}`)
+    const before = this.inventory()
     await bot.equip(item, 'hand')
-    // placeBlock resolves only once the server shows the new block there.
+    // placeBlock resolves only once the server shows the new block there. The used item arrives separately.
     await bot.placeBlock(bot.blockAt(spot.offset(0, -1, 0)), new Vec3(0, 1, 0))
-    const { x, y, z } = spot
-    return { ok: true, message: `placed ${target} at ${x},${y},${z}`, output: { x, y, z } }
+    await settle(() => !isDeepStrictEqual(this.inventory(), before), INVENTORY_MS)
+    return { ok: true, message: `placed ${target} at ${spot.x},${spot.y},${spot.z}`, output: diff(before, this.inventory()) }
   }
 
   async #craft (grid) {
