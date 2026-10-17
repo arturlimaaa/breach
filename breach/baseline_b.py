@@ -83,10 +83,9 @@ def run_episode_b(
         result = world.step(action)
         predicted = dict(rule.delta) if rule else {}
         observed = diff(before.inventory, result.observation.inventory)
-        target = rule.target if rule else action.target
-        cls = classify(action.name, target)
+        cls = classify(action.name, action.target)
         log.append(Transition(
-            episode, world.actions, world.server, obs_hash(before), action.name, target,
+            episode, world.actions, world.server, obs_hash(before), action.name, action.target,
             f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
             verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
         ))
@@ -118,7 +117,7 @@ def run_episode_b(
         elif kind == "move":
             result = act(Action("move", _heading(world.position, _nearest(known, rule.target, world.position))))
         else:
-            result = act(Action(kind, rule.target if kind == "craft" else None), rule)
+            result = act(Action(kind, rule.target, rule.inputs if kind == "craft" else None), rule)
         if result.ok:
             failures = []
         else:

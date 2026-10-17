@@ -119,6 +119,8 @@ def held_tier(inventory: Counter) -> int:
 class GridWorld:
     """Deterministic 2D world with a Minecraft-shaped action space."""
 
+    paths = False  # move takes a direction only; a pathing world's move also goes to a named block in one action
+
     def __init__(self, task: Task, seed: int, ruleset: Ruleset = VANILLA, inventory: dict[str, int] | None = None, server: str = "grid/vanilla"):
         self.task = task
         self.ruleset = ruleset

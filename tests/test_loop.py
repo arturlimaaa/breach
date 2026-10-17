@@ -10,6 +10,8 @@ from breach.store import RuleStore
 from breach.tasks import H1, H2, T1
 from breach.world import VANILLA, GridWorld, Recipe, rules_from_ruleset
 
+GOLDEN = Path(__file__).parent / "golden"
+
 
 def certified_store():
     store = RuleStore()
@@ -61,6 +63,11 @@ class LoopTests(unittest.TestCase):
             (19, [("mine", "log"), ("craft", "planks"), ("craft", "crafting_table"), ("mine", "log"), ("craft", "planks"),
                   ("craft", "stick"), ("mine", "log"), ("craft", "planks"), ("craft", "wooden_pickaxe")]),
         )
+
+    def test_t1_seed_1_logs_the_golden_transitions(self):
+        log = TransitionLog()
+        run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")
+        self.assertEqual(list(log), list(TransitionLog(GOLDEN / "d-t1-s1.jsonl")))
 
     def test_partial_inventory_skips_the_crafting_table(self):
         log = TransitionLog()

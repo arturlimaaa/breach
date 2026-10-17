@@ -8,7 +8,7 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from .world import RADIUS, Action, Observation, Position, StepResult, Task
+from .world import DIRECTIONS, RADIUS, Action, Observation, Position, StepResult, Task
 
 TIMEOUT = 90  # seconds; the adapter bounds a step at 60 s and serves one request at a time
 
@@ -27,6 +27,8 @@ def parse(data: dict[str, Any]) -> Observation:
 class HttpWorld:
     """The adapter behind the world interface the executor and B use. Every observation refreshes the attributes."""
 
+    paths = True  # the contract's move takes {"toward": block}, which paths next to the nearest one in sight
+
     def __init__(self, base_url: str, task: Task, server: str | None = None):
         """POST /reset with `task`. `server` relabels the adapter's server, which is the rule scope."""
         self.base_url, self.task = base_url.rstrip("/"), task
@@ -40,7 +42,9 @@ class HttpWorld:
         return self._update(self._call("GET", "/observe"))
 
     def step(self, action: Action) -> StepResult:
-        data = self._call("POST", "/step", {"action": action.name, "target": action.target, "grid": action.grid})
+        # A move names a direction or the block to path toward.
+        target = action.target if action.name != "move" or action.target in DIRECTIONS else {"toward": action.target}
+        data = self._call("POST", "/step", {"action": action.name, "target": target, "grid": action.grid})
         return StepResult(data["ok"], data["message"], data["output"], self._update(data["observation"]), data["events"])
 
     def _update(self, data: dict[str, Any]) -> Observation:
