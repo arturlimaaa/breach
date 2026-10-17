@@ -38,22 +38,23 @@ class ConvertTests(unittest.TestCase):
         )
         self.assertEqual(proof(self.run_dir)["episodes"], [{
             "id": "t1", "task": "t1", "server": SERVER, "change": CHANGE, "seed": None, "goal": "wooden_pickaxe",
-            "count": 1, "inventory": {}, "success": False, "actions": 13, "reason": "development_trial_ended",
-            "system": "B", "contradictions": 2, "actions_after_contradiction": 1, "immediate_repeat": 0,
+            "count": 1, "inventory": {}, "success": False, "actions": 14, "reason": "development_trial_ended",
+            "system": "B", "contradictions": 2, "actions_after_contradiction": 1, "immediate_repeat": 1,
             "recovery_latency": None, "text_model_calls": 2, "tokens": 3216,
         }])
 
-    def test_the_log_has_one_transition_per_logged_action(self):
-        results = sum(json.loads(line)["type"] == "result" for line in EVENTS.read_text(encoding="utf-8").splitlines())
+    def test_the_log_has_one_transition_per_action_and_none_per_wait(self):
+        events = [json.loads(line) for line in EVENTS.read_text(encoding="utf-8").splitlines()]
+        actions = sum(e["type"] == "decision" and e["selected"] != "wait" for e in events)
         entry, log = self.entry(T1)
-        self.assertEqual((len(log), entry["actions"]), (results, results))
+        self.assertEqual((len(log), entry["actions"], [t for t in log if t.action == "wait"]), (actions, actions, []))
 
     def test_a_refused_craft_is_an_exact_mismatch(self):
         _, log = self.entry(T1)
         refused = next(t for t in log if not t.ok)
         self.assertEqual(
             replace(refused, obs_hash="-"),
-            Transition("t1", 8, SERVER, "-", "craft", "wooden_pickaxe", "bundled:craft:wooden_pickaxe", PICKAXE, {},
+            Transition("t1", 13, SERVER, "-", "craft", "wooden_pickaxe", "bundled:craft:wooden_pickaxe", PICKAXE, {},
                        "exact", "mismatch", ok=False),
         )
 
@@ -61,22 +62,23 @@ class ConvertTests(unittest.TestCase):
         _, log = self.entry(T1)
         mine = ("mine", "log", "bundled:mine:log", "exact", "match")
         planks = ("craft", "planks", "bundled:craft:planks", "exact", "match")
+        stick = ("craft", "stick", "bundled:craft:stick", "exact", "match")
         refused = ("craft", "wooden_pickaxe", "bundled:craft:wooden_pickaxe", "exact", "mismatch")
         self.assertEqual([(t.action, t.target, t.rule_id, t.cls, t.verdict) for t in log], [
             mine, mine, mine, planks,
             ("craft", "crafting_table", "bundled:craft:crafting_table", "exact", "match"),
             ("place", "crafting_table", None, "tolerant", "match"),
-            ("craft", "stick", "bundled:craft:stick", "exact", "match"),
-            refused,
-            ("craft", "oak_boat", None, "ignored", "ignored"),
-            mine, planks,
+            stick, stick, mine,
             ("move", "approach_table", None, "tolerant", "match"),
-            refused,
+            planks,
+            ("craft", "oak_boat", None, "ignored", "ignored"),
+            refused, refused,
         ])
 
-    def test_the_episode_ends_at_the_budget(self):
-        entry, log = self.entry(replace(T1, budget=5))
-        self.assertEqual((entry["actions"], entry["success"], entry["reason"], len(log)), (5, False, "budget", 5))
+    def test_waits_spend_the_budget_like_any_decision_of_b_on_the_grid(self):
+        # The fifteenth decision is the second wait after the refused craft.
+        entry, log = self.entry(replace(T1, budget=15))
+        self.assertEqual((entry["actions"], entry["success"], entry["reason"], len(log)), (13, False, "budget", 13))
 
     def test_the_episode_ends_at_the_first_action_that_holds_the_goal(self):
         entry, log = self.entry(Task("sticks", "stick"))

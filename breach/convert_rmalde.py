@@ -2,8 +2,10 @@
 
 agent.mjs logs a `decision` (the menu key Jev chose) before each action and a `result` (its description, outcome and
 the inventory after it) once the action ends. Each result becomes one transition, predicted by our bundled table
-rules_from_ruleset(VANILLA) as B on the grid is. The episode ends like a grid episode, at the first result that holds
-the goal or at the budget; whatever his agent does after that is not part of it.
+rules_from_ruleset(VANILLA) as B on the grid is. A wait is the exception: as on the grid, it is a decision without a
+world action, so it is neither a transition nor an action, yet it spends the budget, which caps decisions. The episode
+ends like a grid episode, at the first result that holds the goal or at the budget; whatever his agent does after that
+is not part of it.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ class Episode(NamedTuple):
     end: dict[str, int]
     steps: list[Transition]
     calls: list[dict[str, Any]]  # planner calls, as model_calls.jsonl records
+    decisions: int  # Jev's choices, waits included
 
 
 def read_events(path: Path) -> list[dict[str, Any]]:
@@ -53,9 +56,9 @@ def held(inventory: dict[str, int]) -> dict[str, int]:
     return dict(counts)
 
 
-def over(inventory: dict[str, int], actions: int, task: Task) -> bool:
-    """A grid episode's end: the goal is held or the budget is spent."""
-    return inventory.get(task.goal, 0) >= task.count or actions >= task.budget
+def over(inventory: dict[str, int], decisions: int, task: Task) -> bool:
+    """A grid episode's end: the goal is held or the budget is spent, which for B caps decisions, waits included."""
+    return inventory.get(task.goal, 0) >= task.count or decisions >= task.budget
 
 
 def parse_action(key: str, description: str) -> tuple[str, str | None, int]:
@@ -75,7 +78,7 @@ def episode(events: list[dict[str, Any]], task: Task) -> Episode:
     start = next((held(e["state"]["inventory"]) for e in events if e["type"] == "start"), None)
     if start is None:
         raise ValueError("no start event: not an events.jsonl written by agent.mjs")
-    end, decision, hazards, steps, calls = start, None, [], [], []
+    end, decision, hazards, steps, calls, decisions = start, None, [], [], [], 0
     for event in events:
         kind = event["type"]
         if kind in ("plan", "plan_error"):
@@ -92,12 +95,15 @@ def episode(events: list[dict[str, Any]], task: Task) -> Episode:
                 # The start event precedes the runner's /clear and /give, so the episode starts at the first choice.
                 start = end = held(json.loads(event["request"]["state"])["inventory"])
         elif kind == "result":
-            after = held(event["inventory"])
-            steps.append(_transition(len(steps) + 1, decision, event, end, after, hazards, task.task_id))
-            end = after
-            if over(end, len(steps), task):
+            decisions += 1
+            # A wait leaves `end` alone, so anything picked up meanwhile shows in the next action's delta.
+            if decision["selected"] != "wait":
+                after = held(event["inventory"])
+                steps.append(_transition(len(steps) + 1, decision, event, end, after, hazards, task.task_id))
+                end = after
+            if over(end, decisions, task):
                 break
-    return Episode(start, end, steps, calls)
+    return Episode(start, end, steps, calls, decisions)
 
 
 def _transition(n: int, decision: dict, result: dict, before: dict, after: dict, hazards: list[str], episode_id: str) -> Transition:
@@ -129,7 +135,7 @@ def convert(events_path: Path, out_dir: Path, task: Task, change: str | None = N
     entry = {
         "id": task.task_id, "task": task.task_id, "server": SERVER, "change": change, "seed": None,
         "goal": task.goal, "count": task.count, "inventory": ep.start, "success": success, "actions": len(ep.steps),
-        "reason": "goal" if success else "budget" if len(ep.steps) >= task.budget else (ended or ["unfinished"])[-1],
+        "reason": "goal" if success else "budget" if ep.decisions >= task.budget else (ended or ["unfinished"])[-1],
     }
     (out_dir / "manifest.json").write_text(json.dumps({"system": "B", "episodes": [entry]}, indent=2) + "\n", encoding="utf-8")
     return out_dir

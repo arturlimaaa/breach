@@ -17,7 +17,7 @@ from breach.loop import run_episode
 from breach.proof import proof
 from breach.tasks import H2, T1, T3
 from breach.world import VANILLA, Action, GridWorld, Task
-from tests.fake_adapter import serve
+from tests.fake_adapter import observation, serve
 from tests.test_baseline_a import T1_PLAN
 from tests.test_induce import scripted
 
@@ -55,6 +55,16 @@ class Mirage(GridWorld):
     def observe(self):
         obs = super().observe()
         return replace(obs, visible=[*obs.visible, (3, 0, "log")])
+
+
+class Bare(HttpWorld):
+    """An adapter from before `executed`: its step replies carry no such field."""
+
+    def __init__(self, reply):
+        self.blocks, self.reply = {}, reply
+
+    def _call(self, method, path, body=None):
+        return self.reply
 
 
 def hashless(log):
@@ -123,6 +133,11 @@ class HttpWorldTests(unittest.TestCase):
         url = self.adapter() + "/nowhere"
         with self.assertRaisesRegex(RuntimeError, re.escape(f"POST {url}/reset: HTTP 404")):
             HttpWorld(url, T1)
+
+    def test_a_refused_step_reaches_the_core_as_not_executed_and_a_reply_without_the_field_as_executed(self):
+        refused = HttpWorld(self.adapter(only({(5, 0): "log"})), T1).step(Action("mine", "log"))
+        reply = {"ok": True, "message": "", "output": None, "events": [], "observation": observation(GridWorld(T1, seed=1).observe())}
+        self.assertEqual((refused.ok, refused.executed, Bare(reply).step(Action("look")).executed), (False, False, True))
 
     def test_the_fake_moves_toward_and_mines_by_name_in_one_action_each(self):
         world = HttpWorld(self.adapter(only({(3, 0): "log"})), T1)

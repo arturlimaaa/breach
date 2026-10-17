@@ -66,7 +66,7 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
                 if t is None and ex.world.done:
                     settle("the budget ran out before every candidate was tested")
                     return None
-                passed = t is not None and t.ok and t.verdict == "match"
+                passed = t is not None and t.ok and t.cls == "exact" and t.verdict == "match"
             if passed:
                 adopt(ex.store, candidate)
                 settle(certify(ex.store, ex.log, record.rule_id).reason)

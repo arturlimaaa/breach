@@ -33,7 +33,7 @@ class Hurt(GridWorld):
 
 
 class Slippery(GridWorld):
-    """Its first mine fails, as a live server's can when the bot misses the block."""
+    """Its first mine is refused before the world is touched, as the adapter's is when no path reaches the block."""
 
     missed = False
 
@@ -41,7 +41,20 @@ class Slippery(GridWorld):
         if self.missed:
             return super()._mine(action)
         self.missed = True
-        return self._result(False, "missed the block")
+        return self._result(False, "no path to the log", executed=False)
+
+
+class Tableless(GridWorld):
+    """Its first 3x3 craft is refused before the world is touched, as live run 3's was: no crafting table within reach."""
+
+    refused = False
+
+    def _craft(self, action):
+        recipe = self.ruleset.recipes.get(action.target or "")
+        if self.refused or recipe is None or recipe.station is None:
+            return super()._craft(action)
+        self.refused = True
+        return self._result(False, "no crafting table within 16 blocks", executed=False)
 
 
 class LoopTests(unittest.TestCase):
@@ -85,7 +98,7 @@ class LoopTests(unittest.TestCase):
             ("goal", [("place", "crafting_table"), ("craft", "wooden_pickaxe"), ("craft", "stone_pickaxe")], []),
         )
 
-    def test_a_mine_that_left_its_block_is_a_failed_step_not_a_contradiction(self):
+    def test_a_refused_mine_is_a_failed_step_and_a_changed_drop_still_contradicts(self):
         log = TransitionLog()
         result = run_episode(Slippery(Task("p", "planks"), seed=1), certified_store(), log, "p")
         nothing = replace(VANILLA, drops={**VANILLA.drops, "stone": {}})
@@ -93,6 +106,19 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(
             (result.reason, [(t.cls, t.verdict) for t in log if t.action == "mine"], log.contradictions(), dropped.reason),
             ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at mine:stone"),
+        )
+
+    def test_a_craft_refused_without_a_station_is_a_failed_step_and_a_refused_recipe_still_contradicts(self):
+        log, changed_log = TransitionLog(), TransitionLog()
+        result = run_episode(Tableless(T1, seed=1), certified_store(), log, "t1")
+        coal = replace(VANILLA, recipes={**VANILLA.recipes, "stone_pickaxe": Recipe({"cobblestone": 3, "stick": 2, "coal": 1}, 1)})
+        changed = run_episode(GridWorld(T2, seed=1, ruleset=coal, server="grid/stone-pickaxe-add-coal"), certified_store(), changed_log, "hc")
+        self.assertEqual(
+            (
+                result.reason, [(t.cls, t.verdict) for t in log if t.target == "wooden_pickaxe"], log.contradictions(),
+                changed.reason, [(t.target, t.cls) for t in changed_log.contradictions()],
+            ),
+            ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at craft:stone_pickaxe", [("stone_pickaxe", "exact")]),
         )
 
     def test_t1_seed_1_logs_the_golden_transitions(self):
