@@ -89,6 +89,12 @@ def apply(change: Change, ruleset: Ruleset) -> Ruleset:
     return replace(ruleset, recipes={**ruleset.recipes, change.recipe: recipe})
 
 
+def items(ruleset: Ruleset = VANILLA) -> list[str]:
+    """Every item a rule consumes or produces, in `ruleset` or after any change of its class: the public vocabulary."""
+    rulesets = [ruleset, *(apply(change, ruleset) for change in enumerate_class(ruleset))]
+    return sorted({item for each in rulesets for rule in rules_from_ruleset(each) for item in rule.delta})
+
+
 def _plan(goal: str, ruleset: Ruleset) -> list[Step] | None:
     # A constant travel cost keeps the chosen goal independent of any seed's layout.
     return plan(goal, 1, {}, rules_from_ruleset(ruleset, status="certified"), lambda block: 4)
