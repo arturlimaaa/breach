@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 
-from .baseline_b import Option, _distance, _heading, _nearest, _spiral, menu, step_and_log
+from .baseline_b import Option, _distance, _heading, _nearest, _reach, _spiral, menu, step_and_log
 from .induce import _FENCE
 from .llm import complete
 from .log import TransitionLog
@@ -71,6 +71,8 @@ def run_episode_a(world: GridWorld, log: TransitionLog, episode: str, complete: 
                 result = act(Action("move", next(spiral)))
             elif kind == "move":
                 result = act(Action("move", _heading(world.position, _nearest(known, rule.target, world.position))))
+            elif kind == "place":
+                result = act(Action("place", key.removeprefix("place ")))
             else:
                 result = act(Action(kind, rule.target, rule.inputs if kind == "craft" else None), rule)
             if not result.ok:
@@ -90,8 +92,15 @@ def vanilla_replanner(world: GridWorld, env: Mapping[str, str] | None = None) ->
     offline = {"BREACH_LLM_API_KEY": "offline", "BREACH_LLM_MODEL": "vanilla-replanner", **(env or {})}
 
     def endpoint(url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, bytes]:
-        steps = plan(world.task.goal, world.task.count, world.observe().inventory, rules, lambda block: 1)
-        keys = [f"craft {s.target} x{s.delta[s.target]}" if s.action == "craft" else f"mine {s.target}" for s in steps]
+        obs = world.observe()
+        steps = plan(world.task.goal, world.task.count, obs.inventory, rules, lambda block: 1)
+        reach, keys = _reach(obs), []
+        for s in steps:
+            # ponytail: a station placed for one craft is taken as still in reach for the plan's later ones; A asks again when not.
+            if s.action == "craft" and s.near and s.near not in reach:
+                keys.append(f"place {s.near}")
+                reach.add(s.near)
+            keys.append(f"craft {s.target} x{s.delta[s.target]}" if s.action == "craft" else f"mine {s.target}")
         return 200, json.dumps({"choices": [{"message": {"content": json.dumps(keys)}}]}).encode()
 
     def replan(messages, **kwargs):
@@ -120,15 +129,16 @@ def _prompt(task: Task, bundled: list[Rule]) -> str:
     lines = []
     for rule in bundled:
         if rule.action == "craft":
-            key, needs = f"craft {rule.target} x{rule.delta[rule.target]}", rule.near
+            key, needs = f"craft {rule.target} x{rule.delta[rule.target]}", rule.near and f"a {rule.near} placed within reach"
         else:
-            key, needs = f"mine {rule.target}", rule.tool
-        lines.append(f'- "{key}": {json.dumps(rule.delta)}' + (f", needs a {needs} held" if needs else ""))
+            key, needs = f"mine {rule.target}", rule.tool and f"a {rule.tool} held"
+        lines.append(f'- "{key}": {json.dumps(rule.delta)}' + (f", needs {needs}" if needs else ""))
     return "\n".join([
         f"Plan a task in a 2D grid version of Minecraft: hold {task.count} {task.goal} within {task.budget} actions.",
         "",
         "Options and the inventory change each one causes, negative consumed and positive produced:",
         *lines,
+        '- "place crafting_table": put the held crafting_table down next to you, where it stays',
         '- "move toward <block>": one step toward the nearest <block> seen before and now out of view',
         '- "explore": one step along an outward square spiral',
         '- "wait": no action',

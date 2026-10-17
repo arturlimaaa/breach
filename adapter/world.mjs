@@ -41,6 +41,10 @@ export function within (work, ms, label, cancel = () => {}) {
 }
 
 export class MineflayerWorld {
+  // Set once the world has evaluated the step's action. A step refused before that point reports executed false, so the
+  // core takes it as no evidence about a rule.
+  #executed = false
+
   constructor (bot, server, stepMs = STEP_MS) {
     this.bot = bot
     this.server = server
@@ -92,10 +96,12 @@ export class MineflayerWorld {
       kicked: () => events.push('kicked')
     }
     for (const [name, listener] of Object.entries(listeners)) bot.on(name, listener)
+    this.#executed = false
     try {
-      return { output: null, ...await within(this.#run(action, target, grid), this.stepMs, 'step', () => this.#cancel()), events }
+      const result = await within(this.#run(action, target, grid), this.stepMs, 'step', () => this.#cancel())
+      return { output: null, ...result, events, executed: this.#executed }
     } catch (err) {
-      return { ok: false, message: `${action}: ${err.message}`, output: null, events }
+      return { ok: false, message: `${action}: ${err.message}`, output: null, events, executed: this.#executed }
     } finally {
       for (const [name, listener] of Object.entries(listeners)) bot.off(name, listener)
     }
@@ -118,12 +124,14 @@ export class MineflayerWorld {
       const block = this.#nearest(target.toward)
       if (!block) throw new Error(`no ${target.toward} in sight`)
       await this.#goto(reach(block.position), `toward ${target.toward}`)
+      this.#executed = true
       return { ok: true, message: `moved toward ${target.toward}` }
     }
     const offset = DIRECTIONS.get(target)
     if (!offset) throw new Error('target must be north, south, east, west, or {"toward": block}')
     const { x, z } = this.position()
     await this.#goto(new goals.GoalXZ(x + offset[0], z + offset[1]), target)
+    this.#executed = true
     return { ok: true, message: `moved ${target}` }
   }
 
@@ -135,6 +143,7 @@ export class MineflayerWorld {
     const tool = bot.pathfinder.bestHarvestTool(block)
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
+    this.#executed = true
     await bot.dig(block)
     await this.#collect(block, before)
     // dig() clears the block locally at once; a dig the server refused comes back as a block update during the wait.
@@ -178,6 +187,7 @@ export class MineflayerWorld {
     const before = this.inventory()
     await bot.equip(item, 'hand')
     // placeBlock resolves only once the server shows the new block there. The used item arrives separately.
+    this.#executed = true
     await bot.placeBlock(bot.blockAt(spot.offset(0, -1, 0)), new Vec3(0, 1, 0))
     await settle(() => !isDeepStrictEqual(this.inventory(), before), INVENTORY_MS)
     return { ok: true, message: `placed ${target} at ${spot.x},${spot.y},${spot.z}`, output: diff(before, this.inventory()) }
@@ -236,6 +246,7 @@ export class MineflayerWorld {
     try {
       await clear(bot, window, size)
       await fill(bot, window, slots)
+      this.#executed = true
       return await use(window)
     } finally {
       await clear(bot, window, size)
@@ -265,6 +276,7 @@ export class MineflayerWorld {
   }
 
   #look () {
+    this.#executed = true
     const { x, y, z } = this.position()
     const seen = glance((bx, by, bz) => this.bot.blockAt(new Vec3(bx, by, bz), false)?.name ?? null, x, y, z)
     return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen }

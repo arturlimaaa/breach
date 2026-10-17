@@ -55,7 +55,7 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
         ex.status.emit(ex)
         for candidate in order_tests(candidates, ex.observe().inventory):
             passed = _judged(ex, candidate, counterexample)
-            how = "the refuting step" if passed is not None else ("a probe" if candidate.action == "craft" else "a mine")
+            how = "the refuting step" if passed is not None else "a probe"
             ex.status.rule = shown(record, f"{heard}; testing {change(candidate)} by {how}", "revising")
             ex.status.emit(ex)
             if passed is None:
@@ -104,22 +104,22 @@ def adopt(store: RuleStore, candidate: Rule) -> Rule:
 
 
 def _test(ex: Executor, candidate: Rule) -> Transition | str | None:
-    """Probe a craft candidate's grid, or mine its block once. None when no test ran: the budget ran out or no certified plan makes the grid."""
-    if ex.world.done:
+    """Probe a craft candidate's grid at a station within reach.
+
+    None when no probe ran: the budget ran out, no certified plan makes the grid, or the candidate is a mine, which
+    only a refuting mine that removed its block can raise, and that mine already judged it.
+    """
+    if ex.world.done or candidate.action != "craft":
         return None
-    if candidate.action == "mine":
-        # ponytail: the refuted mine just ran with its tool and the grid never consumes tools; acquire candidate.tool once a world can.
-        if not ex.travel_to(candidate.target) or ex.world.done:
-            return None
-        step = Step(candidate.rule_id, "mine", candidate.target, dict(candidate.delta), candidate.near, candidate.tool, test=True)
-        return ex.act(Action("mine", candidate.target), step)[0]
-    needs = {**candidate.inputs, **({candidate.near: 1} if candidate.near else {})}
+    near = candidate.near
+    # A station already on the map is walked to, so only a missing one has to be made.
+    needs = {**candidate.inputs, **({near: 1} if near and near not in ex.known.values() else {})}
     while True:
         held = ex.observe().inventory
         missing = [item for item, n in needs.items() if held.get(item, 0) < n]
         if not missing:
             break
-        steps = plan(missing[0], needs[missing[0]], held, ex.store.usable(ex.world.server), ex.distance)
+        steps = plan(missing[0], needs[missing[0]], held, ex.store.usable(ex.world.server), ex.distance, set(ex.known.values()))
         if steps is None:
             return None
         hit = ex.execute(steps)
@@ -128,5 +128,7 @@ def _test(ex: Executor, candidate: Rule) -> Transition | str | None:
             return f"contradiction at {hit.rule_id} while testing {candidate.rule_id}"
         if hit is not None or ex.world.done:
             return hit
+    if near and not ex.station(near):
+        return None
     step = Step(candidate.rule_id, "probe", candidate.target, candidate.outputs, candidate.near, candidate.tool, test=True)
     return ex.act(Action("probe", candidate.target, grid=candidate.inputs), step)[0]

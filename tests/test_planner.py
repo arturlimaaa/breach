@@ -39,6 +39,11 @@ class PlannerTests(unittest.TestCase):
         steps = plan("stone_pickaxe", 1, inventory, certified_store().usable("grid/vanilla"), lambda block: 1)
         self.assertEqual([(s.action, s.target) for s in steps], [("craft", "stick"), ("craft", "stone_pickaxe")])
 
+    def test_a_station_block_on_the_map_spares_making_a_table(self):
+        rules, inventory = certified_store().usable("grid/vanilla"), {"planks": 3, "stick": 2}
+        made = [[s.target for s in plan("wooden_pickaxe", 1, inventory, rules, lambda block: 1, stations)] for stations in ((), {"crafting_table"})]
+        self.assertEqual(made, [["log", "planks", "crafting_table", "wooden_pickaxe"], ["wooden_pickaxe"]])
+
     def test_hypotheses_are_not_planned_over(self):
         store = RuleStore()
         for rule in rules_from_ruleset(VANILLA, status="hypothesis"):

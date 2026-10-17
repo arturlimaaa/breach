@@ -62,18 +62,6 @@ def reuses_refuted_rule(log):
     return bool(after) and after[0].rule_id == first.rule_id
 
 
-class Slippery(GridWorld):
-    """Its first mine fails, as a live server's can when the bot misses the block."""
-
-    missed = False
-
-    def _mine(self, action):
-        if self.missed:
-            return super()._mine(action)
-        self.missed = True
-        return self._result(False, "missed the block")
-
-
 def true_delta(change):
     rule_id = f"mine:{change.block}" if change.kind == "drop" else f"craft:{change.recipe}"
     return next(r.delta for r in rules_from_ruleset(apply(change, VANILLA)) if r.rule_id == rule_id)
@@ -268,15 +256,6 @@ class RecoveryTests(unittest.TestCase):
                     (result.reason, record.delta, record.status, [(t.action, t.predicted, t.observed, t.verdict) for t in log if t.test]),
                     (reason, drop, "hypothesis", tests),
                 )
-
-    def test_a_failed_refuting_mine_is_settled_by_one_mine_test(self):
-        log, store = TransitionLog(), certified_store()
-        world = Slippery(Task("p", "planks"), seed=1, server="grid/slippery")
-        result = run_episode(world, store, log, "p", induce=perfect(world)[0])
-        self.assertEqual(
-            (result.reason, [(t.action, t.rule_id, t.observed, t.verdict) for t in log if t.test], store.rules["mine:log@grid/slippery"].delta),
-            ("goal", [("mine", "mine:log@grid/slippery#1", {"log": 1}, "match")], {"log": 1}),
-        )
 
     def test_a_failed_test_step_demotes_only_its_hypothesis_and_counts_as_a_counterexample(self):
         store, log = certified_store(), TransitionLog()
