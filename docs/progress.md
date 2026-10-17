@@ -20,7 +20,8 @@ and the orchestrator read the output, then the branch is merged into
 | M2 Nemotron client + inducer + test ordering | `al/m2-llm` | merged 7d5435a | fake-transport tests pin provider-shaped requests (NVIDIA, Crusoe, Ollama); schema gate; model_calls.jsonl |
 | M3 proof follow-up (worst_case and aggregate keys; success recomputed from the log) | `al/m3-proof` | running | fixture where the manifest lies is refused |
 | M3 ring-sample look for H2 | `al/m3-look` | merged 903f260, 65 tests | H2 seeds 1 to 5 finish in 74 to 187 actions (blind spiral: never within 300); T1 to T3 and H1 unchanged |
-| M7 site + OBS banner | `al/m7-site` | running | `node site/check.mjs` against fixtures |
+| M7 site + OBS banner | `al/m7-site` | merged 071d77f; `node site/check.mjs` 7 pass | status.json and proof.json contracts in site/README.md; banner follows a rewrite within 600 ms |
+| M4 adapter follow-up (`place` action, live smoke on the running server) | `al/m4-adapter` | running | live curl transcript of T1's steps against the real 1.16.5 server |
 | M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
 | M3 system A (Nemotron plan per task, no memory) | `al/m3-system-a` | running | scripted-`complete` tests; at least one call per task |
 | M4 HttpWorld glue + live CLI | `al/m4-httpworld` | running | Executor over a fake HTTP adapter reproduces the grid T1 log |
@@ -30,7 +31,13 @@ the grid while rmalde's real harness has ring samples; give B the `look`
 before the H2 row is compared. The look reports the nearest block of any type
 per heading; a logs-only look reached the first log in 39 to 58 actions
 against 44 to 149 (measured by the look lane, not committed). Wire systems A
-and C into `evaluate.run_jobs` after their lanes merge.
+and C into `evaluate.run_jobs` after their lanes merge. Executor-side
+placement of the crafting table (grid `place` action, executor near-check, B
+menu option) is a lane after recovery lands.
+
+Server: the vanilla 1.16.5 server runs from `adapter/server/` (seed 12345,
+offline mode, port 25565, `eula=true` set on 2026-10-17) inside the detached
+screen session `mc`; console commands via `screen -S mc -X stuff 'cmd\n'`.
 
 ## 2026-10-17, session 1
 
