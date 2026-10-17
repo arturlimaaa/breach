@@ -1,5 +1,21 @@
 # Progress
 
+## Checkpoints
+
+Orchestrator: the main session. Builders: Opus agents, one per lane, each in
+its own git worktree and branch. A lane is done when its gate command passed
+and the orchestrator read the output, then the branch is merged into
+`al/integrate`.
+
+| Lane | Branch | Status | Gate |
+|---|---|---|---|
+| M0 core | `al/m0-core` | done, 9f73c73 | 17 tests green |
+| M1 verifier + certifier + demotion | `al/m1-verify` | running | synthetic-log tests; vanilla T1 plans after a server demotion |
+| M3 change-class generator + datapacks | `al/m3-changes` | running | 30 changes enumerated, rulesets and datapacks written, impossible goals excluded |
+| M4 Mineflayer adapter + server setup | `al/m4-adapter` | running | `node --test` with a fake bot; live T1 waits on the EULA |
+| M3 baseline B (rmalde architecture, grid) | `al/m3-baseline-b` | running | B finishes vanilla T1; re-crafts under a count change; stalls under a precondition change |
+| M3 evaluator + proof script | `al/m3-proof` | running | proof.json and results table from a run directory |
+
 ## 2026-10-17, session 1
 
 Shipped (M0, branch `al/m0-core`): typed rules with scope and status
