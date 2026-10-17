@@ -7,6 +7,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from breach.baseline_a import run_episode_a
 from breach.baseline_b import run_episode_b, vanilla_plan
 from breach.evaluate import certified_vanilla, run_jobs
 from breach.http_world import HttpWorld, parse
@@ -16,6 +17,8 @@ from breach.proof import proof
 from breach.tasks import T1
 from breach.world import VANILLA, Action, GridWorld, Task
 from tests.fake_adapter import serve
+from tests.test_baseline_a import T1_PLAN
+from tests.test_induce import scripted
 
 ROOT = Path(__file__).resolve().parents[1]
 PLANKS = Task("p", "planks")
@@ -181,6 +184,15 @@ class HttpWorldTests(unittest.TestCase):
         run_episode_b(HttpWorld(self.adapter(seed_1, steps.append), T1), TransitionLog(), "t1", vanilla_plan)
         self.assertEqual([s for s in wire(steps) if s[0] != "move"], [
             MINE, CRAFT_PLANKS, ("craft", "stick", {"planks": 2}), MINE, CRAFT_PLANKS, ("craft", "crafting_table", {"planks": 4}),
+            MINE, CRAFT_PLANKS, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
+        ])
+
+    def test_a_sends_the_block_to_mine_and_the_craft_grid(self):
+        steps = []
+        complete, _ = scripted(json.dumps(T1_PLAN))
+        run_episode_a(HttpWorld(self.adapter(seed_1, steps.append), T1), TransitionLog(), "t1", complete)
+        self.assertEqual([s for s in wire(steps) if s[0] != "move"], [
+            MINE, CRAFT_PLANKS, ("craft", "crafting_table", {"planks": 4}), MINE, CRAFT_PLANKS, ("craft", "stick", {"planks": 2}),
             MINE, CRAFT_PLANKS, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
         ])
 
