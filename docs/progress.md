@@ -18,8 +18,18 @@ and the orchestrator read the output, then the branch is merged into
 | M3 matrix runner (B and D × every change × seeds, HS episodes) | `al/m3-proof` | running | `python3 -m breach.matrix runs/<name> --seeds 1 2 --systems B D` prints the table |
 | M3 change-class follow-up (goal choice mid-plan, oak_wood barrier override, change.json) | `al/m3-changes` | running | tests per item; datapack for the oak_wood swap carries the override |
 | M2 Nemotron client + inducer + test ordering | `al/m2-llm` | running | fake-transport tests; schema gate; model_calls.jsonl |
-| M3 ring-sample look for H2 | `al/m3-look` | running | H2 succeeds on seeds 1 to 5 within budget |
+| M3 ring-sample look for H2 | `al/m3-look` | merged 903f260, 65 tests | H2 seeds 1 to 5 finish in 74 to 187 actions (blind spiral: never within 300); T1 to T3 and H1 unchanged |
 | M7 site + OBS banner | `al/m7-site` | running | `node site/check.mjs` against fixtures |
+| M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
+| M3 system A (Nemotron plan per task, no memory) | `al/m3-system-a` | running | scripted-`complete` tests; at least one call per task |
+| M4 HttpWorld glue + live CLI | `al/m4-httpworld` | running | Executor over a fake HTTP adapter reproduces the grid T1 log |
+
+Follow-ups not yet assigned: B explores with the blind spiral, so B fails H2 on
+the grid while rmalde's real harness has ring samples; give B the `look`
+before the H2 row is compared. The look reports the nearest block of any type
+per heading; a logs-only look reached the first log in 39 to 58 actions
+against 44 to 149 (measured by the look lane, not committed). Wire systems A
+and C into `evaluate.run_jobs` after their lanes merge.
 
 ## 2026-10-17, session 1
 
