@@ -37,27 +37,27 @@ def step(action, target, rule_id, predicted, observed, verdict, **extra):
 LOGS = {
     # The plan keeps crafting with the refuted stick rule, then recovers with a revised rule five actions later.
     CONTRADICTED["id"]: [
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
         step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
-        step("move", "east", None, {}, {}, "match", ok=True, events=[]),
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("move", "east", None, {}, {}, "match", ok=True, events=[], message="moved east"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick@grid/stick-count-2", STICK_2, STICK_2, "match"),
     ],
     # Mining again needs a move first, so repeating the refuted mine is not an immediate repeat. It never recovers.
     DROPPED["id"]: [
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
         step("move", "east", None, {}, {}, "match"),
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
     ],
     # A failed hypothesis test and a quarantined step are not contradictions.
     CLEAN["id"]: [
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick", {"planks": -2, "stick": 3}, STICK, "mismatch", test=True),
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "quarantined"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "quarantined"),
     ],
 }
 
