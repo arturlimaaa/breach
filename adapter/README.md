@@ -40,7 +40,15 @@ server console. The console reads them before the world loads, and a command rea
 `worldborder` fails there. The adapter sets the border on each reset instead. The terminal stays attached to the
 console for further commands.
 
-To reset to a saved world: `stop`, replace `server/world` with the saved copy, start the server and the adapter again.
+`setup/reset-world.sh` resets the world between runs. It sends `stop` to the screen session `mc` and waits for the
+server to exit. It then replaces `server/world` with `server/world.pristine` and starts `start.sh` in a new detached
+screen session `mc`, returning once the server logs `Done`. It leaves the world alone unless the pristine copy exists
+and the server has exited. It finds the server by its command line, `jar server.jar nogui`, so it assumes one server on
+the machine. The adapter exits when its bot is dropped, so start the adapter again afterwards.
+
+`server/world.pristine` is a world generated from seed 12345 that no player has entered, with an empty `datapacks`
+folder. To make a new one: stop the server, move `server/world` aside, start the server so it generates a world, stop
+it, and copy `server/world` to `server/world.pristine`.
 
 ## Adapter
 
