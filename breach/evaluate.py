@@ -17,8 +17,8 @@ System = Callable[[GridWorld, RuleStore, TransitionLog, str], EpisodeResult]
 Job = tuple[Task, int, str, Ruleset, str | None]
 
 
-def certified_vanilla() -> RuleStore:
-    store = RuleStore()
+def certified_vanilla(path: Path | None = None) -> RuleStore:
+    store = RuleStore(path)
     for rule in rules_from_ruleset(VANILLA, status="certified"):
         store.add(rule)
     return store

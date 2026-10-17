@@ -4,8 +4,8 @@ import { text } from 'node:stream/consumers'
 import { createBot, MineflayerWorld } from './world.mjs'
 
 // The adapter contract of docs/design.md over a World: reset(inventory) returning the commands it issued, position(),
-// inventory(), visible(), act(step).
-export function serve (world) {
+// inventory(), visible(), act(step). `log` receives one line per reset and step.
+export function serve (world, log = line => console.log(line)) {
   let task = null
   let actions = 0
   let queue = Promise.resolve()
@@ -38,7 +38,7 @@ export function serve (world) {
     'POST /step': async step => {
       if (typeof step?.action !== 'string') return [400, { error: 'body must be {action, target, grid}' }]
       // Steps go on after success, so recovery can still act before the episode returns; only the budget stops them.
-      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: observation() }]
+      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], executed: false, observation: observation() }]
       actions += 1
       return [200, { ...await world.act(step), observation: observation() }]
     }
@@ -55,18 +55,36 @@ export function serve (world) {
       return [400, { error: 'body is not JSON' }]
     }
     try {
-      return await route(body)
+      return [...await route(body), body]
     } catch (err) {
-      return [500, { error: err.message }]
+      return [500, { error: err.message }, body]
     }
   }
 
   // One request at a time: two steps must never drive the bot at once.
   return createServer((req, res) => {
-    queue = queue.then(() => handle(req)).then(([status, payload]) => {
+    queue = queue.then(() => handle(req)).then(([status, payload, body]) => {
+      if (req.method === 'POST' && (req.url === '/reset' || req.url === '/step')) log(line(req.url, body, payload))
       res.writeHead(status, { 'content-type': 'application/json' })
       res.end(JSON.stringify(payload))
     }, err => console.error(err))
+  })
+}
+
+// So a run the core drives can be read from the adapter's output. JSON.stringify leaves out the undefined fields.
+function line (path, body, payload) {
+  const reset = path === '/reset'
+  return JSON.stringify({
+    time: new Date().toISOString(),
+    action: reset ? 'reset' : body?.action,
+    target: reset ? body?.task : body?.target,
+    grid: body?.grid ?? undefined,
+    ok: payload.ok ?? !payload.error,
+    message: payload.message ?? payload.error,
+    output: payload.output ?? null,
+    events: payload.events?.length ? payload.events : undefined,
+    executed: payload.executed,
+    at: (payload.observation ?? payload).position
   })
 }
 

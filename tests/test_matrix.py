@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -22,17 +23,22 @@ class MatrixTests(unittest.TestCase):
         cls.addClassCleanup(tmp.cleanup)
         cls.run_dir = Path(tmp.name) / "matrix"
         cls.stdout = subprocess.run(
-            [sys.executable, "-m", "breach.matrix", str(cls.run_dir), "--changes", "stick-count-2", "--seeds", "1", "--systems", "A", "B", "D"],
+            [sys.executable, "-m", "breach.matrix", str(cls.run_dir), "--changes", "stick-count-2", "--seeds", "1", "--systems", "A", "B", "C", "D"],
             cwd=ROOT, capture_output=True, text=True, check=True,
         ).stdout
         cls.proof = json.loads((cls.run_dir / "proof.json").read_text())
         cls.episodes = {(e["system"], e["task"]): e for e in cls.proof["episodes"]}
 
     def test_writes_one_manifest_per_system(self):
-        self.assertEqual([m.relative_to(self.run_dir).parts[0] for m in sorted(self.run_dir.rglob("manifest.json"))], ["A", "B", "D"])
+        self.assertEqual(
+            [m.relative_to(self.run_dir).parts[0] for m in sorted(self.run_dir.rglob("manifest.json"))], ["A", "B", "C", "D"],
+        )
 
     def test_every_system_has_a_worst_case(self):
-        self.assertEqual(sorted(self.proof["worst_case"]), ["A", "B", "D"])
+        self.assertEqual(sorted(self.proof["worst_case"]), ["A", "B", "C", "D"])
+
+    def test_c_meets_the_contradiction_again_on_hs_from_a_fresh_store(self):
+        self.assertEqual((self.episodes["C", "hc"]["contradictions"] > 0, self.episodes["C", "hs"]["contradictions"] > 0), (True, True))
 
     def test_a_calls_the_model_again_on_hs_where_d_calls_none(self):
         self.assertEqual(
@@ -56,8 +62,57 @@ class MatrixTests(unittest.TestCase):
         cells = [[c.strip() for c in line.split("|")[1:3]] for line in self.stdout.splitlines()[2:]]
         self.assertEqual(
             cells,
-            [["A", "worst"], ["B", "worst"], ["D", "worst"], ["A", "HC"], ["A", "HS"], ["B", "HC"], ["D", "HC"], ["D", "HS"]],
+            [
+                ["A", "worst"], ["B", "worst"], ["C", "worst"], ["D", "worst"],
+                ["A", "HC"], ["A", "HS"], ["B", "HC"], ["C", "HC"], ["C", "HS"], ["D", "HC"], ["D", "HS"],
+            ],
         )
+
+
+class PerfectInducerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        cls.runs = Path(tmp.name)
+        subprocess.run(
+            [sys.executable, "-m", "breach.matrix", str(cls.runs / "perfect"), "--changes", "stick-count-2", "--seeds", "1",
+             "--systems", "D", "--inducer", "perfect"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        cls.job_dir = cls.runs / "perfect" / "D" / "stick-count-2-s1"
+        cls.episodes = {e["task"]: e for e in json.loads((cls.runs / "perfect" / "proof.json").read_text())["episodes"]}
+
+    def test_d_recovers_in_hc_and_meets_no_contradiction_on_its_return(self):
+        hc, hs = self.episodes["hc"], self.episodes["hs"]
+        self.assertEqual((type(hc["recovery_latency"]), hs["contradictions"], hs["success"]), (int, 0, True))
+
+    def test_the_job_keeps_its_rules_and_status_beside_its_manifest(self):
+        store = {r["rule_id"]: r for r in json.loads((self.job_dir / "store.json").read_text())}
+        status = json.loads((self.job_dir / "status.json").read_text())
+        self.assertEqual(
+            (status["episode"], store["craft:stick@grid/stick-count-2"]["delta"]),
+            ("stick-count-2-hs-s1", {"planks": -2, "stick": 2}),
+        )
+
+    def test_runs_latest_links_to_the_newest_job(self):
+        latest = self.runs / "latest"
+        self.assertEqual((latest.is_symlink(), latest.resolve()), (True, self.job_dir.resolve()))
+
+
+class NemotronWiringTests(unittest.TestCase):
+    def test_llm_logs_ds_inducer_call_in_the_job_directory_and_a_failed_call_stops_the_run(self):
+        # A closed local port: the call fails at once, and llm.complete still logs it before raising.
+        env = {**os.environ, "BREACH_LLM_BASE_URL": "http://127.0.0.1:9/v1", "BREACH_LLM_API_KEY": "test"}
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "llm"
+            result = subprocess.run(
+                [sys.executable, "-m", "breach.matrix", str(run), "--changes", "stick-count-2", "--seeds", "1", "--systems", "D", "--llm"],
+                cwd=ROOT, env=env, capture_output=True, text=True,
+            )
+            calls = [json.loads(line) for line in (run / "D" / "stick-count-2-s1" / "model_calls.jsonl").read_text().splitlines()]
+            proved = (run / "proof.json").exists()
+        self.assertEqual((result.returncode, [(c["purpose"], "error" in c) for c in calls], proved), (1, [("induce", True)], False))
 
 
 class OfflineModelTests(unittest.TestCase):

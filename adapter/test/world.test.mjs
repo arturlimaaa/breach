@@ -77,7 +77,7 @@ test('a step that outlasts its bound returns ok false and stops the pathfinder',
   const result = await new MineflayerWorld(bot, 'test', 20).act({ action: 'move', target: 'north' })
   assert.deepEqual(
     { result, goal: bot.pathfinder.goal },
-    { result: { ok: false, message: 'move: step timed out after 0.02 s', output: null, events: [] }, goal: null }
+    { result: { ok: false, message: 'move: step timed out after 0.02 s', output: null, events: [], executed: false }, goal: null }
   )
 })
 
@@ -88,7 +88,7 @@ test('place uses the first free cell on solid ground that the bot does not overl
   assert.deepEqual(
     { result, placed: bot.placed },
     {
-      result: { ok: true, message: 'placed crafting_table at -1,64,0', output: { crafting_table: -1 }, events: [] },
+      result: { ok: true, message: 'placed crafting_table at -1,64,0', output: { crafting_table: -1 }, events: [], executed: true },
       placed: [[new Vec3(-1, 63, 0), new Vec3(0, 1, 0)]]
     }
   )
@@ -98,7 +98,7 @@ test('place without a free cell on solid ground fails with a message', async () 
   const walls = { '0,64,-1': 'block', '0,64,1': 'block', '1,64,0': 'block', '-1,64,0': 'block' }
   const world = new MineflayerWorld(placingBot(new Vec3(0.5, 64, 0.5), walls), 'test')
   const result = await world.act({ action: 'place', target: 'crafting_table' })
-  assert.deepEqual(result, { ok: false, message: 'place: no adjacent solid spot for crafting_table', output: null, events: [] })
+  assert.deepEqual(result, { ok: false, message: 'place: no adjacent solid spot for crafting_table', output: null, events: [], executed: false })
 })
 
 test('mine walks onto a drop that rolled out of pickup range', async () => {
@@ -107,7 +107,7 @@ test('mine walks onto a drop that rolled out of pickup range', async () => {
   assert.deepEqual(
     { result, goals: bot.goals },
     {
-      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [] },
+      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true },
       goals: ['GoalCompositeAll', 'GoalBlock']
     }
   )
@@ -116,7 +116,7 @@ test('mine walks onto a drop that rolled out of pickup range', async () => {
 test('mine reaches a log four blocks above the feet', async () => {
   const bot = miningBot(new Vec3(0.5, 64, 0.5), new Vec3(0, 68, 0), new Vec3(0.5, 64, 0.5))
   const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'log' })
-  assert.deepEqual(result, { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [] })
+  assert.deepEqual(result, { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true })
 })
 
 test('a move with no path stops the pathfinder, which would otherwise keep walking its partial path', async () => {
@@ -134,7 +134,7 @@ test('a move with no path stops the pathfinder, which would otherwise keep walki
   const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: 'north' })
   assert.deepEqual(
     { result, goal: bot.pathfinder.goal },
-    { result: { ok: false, message: 'move: No path to the goal!', output: null, events: [] }, goal: null }
+    { result: { ok: false, message: 'move: No path to the goal!', output: null, events: [], executed: false }, goal: null }
   )
 })
 
@@ -143,6 +143,17 @@ test('mine stops the pathfinder when the drop has no path', async () => {
   const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'log' })
   assert.deepEqual(
     { result, goal: bot.pathfinder.goal },
-    { result: { ok: true, message: 'mined log', output: { block_removed: true, collected: {} }, events: [] }, goal: null }
+    { result: { ok: true, message: 'mined log', output: { block_removed: true, collected: {} }, events: [], executed: true }, goal: null }
   )
+})
+
+test('an unknown action is refused without executing', async () => {
+  const result = await new MineflayerWorld(new EventEmitter(), 'test').act({ action: 'fly' })
+  assert.deepEqual(result, { ok: false, message: 'fly: unknown action', output: null, events: [], executed: false })
+})
+
+test('a mine whose walk to the block fails is refused without executing', async () => {
+  const bot = miningBot(new Vec3(0.5, 64, 0.5), new Vec3(5, 64, 0), new Vec3(5.5, 64, 0.5))
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'log' })
+  assert.deepEqual(result, { ok: false, message: 'mine: no path to log', output: null, events: [], executed: false })
 })

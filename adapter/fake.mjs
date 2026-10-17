@@ -30,12 +30,12 @@ export class FakeWorld {
     if (action === 'look') {
       const { x, y, z } = this.position()
       const seen = glance((bx, by, bz) => this.blocks.find(b => b.x === bx && b.y === by && b.z === bz)?.block ?? 'air', x, y, z)
-      return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen, events: [] }
+      return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen, events: [], executed: true }
     }
     const index = action === 'mine' ? this.blocks.findIndex(block => block.block === target) : -1
-    if (index < 0) return { ok: false, message: `fake world cannot ${action} ${target}`, output: null, events: [] }
+    if (index < 0) return { ok: false, message: `fake world cannot ${action} ${target}`, output: null, events: [], executed: false }
     this.blocks.splice(index, 1)
     this.#items[target] = (this.#items[target] ?? 0) + 1
-    return { ok: true, message: `mined ${target}`, output: { block_removed: true, collected: { [target]: 1 } }, events: [] }
+    return { ok: true, message: `mined ${target}`, output: { block_removed: true, collected: { [target]: 1 } }, events: [], executed: true }
   }
 }

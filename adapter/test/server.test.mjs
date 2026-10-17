@@ -6,8 +6,8 @@ import { serve } from '../server.mjs'
 
 const BLOCKS = [{ x: 1, y: 64, z: 0, block: 'log' }, { x: 2, y: 64, z: 0, block: 'log' }, { x: 0, y: 63, z: 3, block: 'stone' }]
 
-async function start (t) {
-  const server = serve(new FakeWorld(BLOCKS)).listen(0, '127.0.0.1')
+async function start (t, log = () => {}) {
+  const server = serve(new FakeWorld(BLOCKS), log).listen(0, '127.0.0.1')
   await once(server, 'listening')
   t.after(() => server.close())
   const base = `http://127.0.0.1:${server.address().port}`
@@ -18,6 +18,35 @@ async function start (t) {
 }
 
 const task = (fields) => ({ task: { task_id: 't', goal: 'log', count: 2, budget: 3, inventory: { planks: 4 }, ...fields } })
+
+test('each reset and step prints one log line with its time, action, target, ok, message, and output', async (t) => {
+  const lines = []
+  const call = await start(t, line => lines.push(JSON.parse(line)))
+  await call('POST', '/reset', task())
+  await call('POST', '/step', { action: 'mine', target: 'log' })
+  await call('GET', '/observe')
+  assert.deepEqual(lines.map(({ time, ...line }) => ({ time: !Number.isNaN(Date.parse(time)), ...line })), [
+    {
+      time: true,
+      action: 'reset',
+      target: { task_id: 't', goal: 'log', count: 2, budget: 3, inventory: { planks: 4 } },
+      ok: true,
+      message: '/clear; /give @s planks 4',
+      output: null,
+      at: { x: 0, y: 64, z: 0 }
+    },
+    {
+      time: true,
+      action: 'mine',
+      target: 'log',
+      ok: true,
+      message: 'mined log',
+      output: { block_removed: true, collected: { log: 1 } },
+      executed: true,
+      at: { x: 0, y: 64, z: 0 }
+    }
+  ])
+})
 
 test('reset returns the observation of the task start and the commands that set it up', async (t) => {
   const call = await start(t)
@@ -44,6 +73,7 @@ test('a step returns its result, events, and the next observation', async (t) =>
     message: 'mined log',
     output: { block_removed: true, collected: { log: 1 } },
     events: [],
+    executed: true,
     observation: {
       server: 'fake/flat',
       position: { x: 0, y: 64, z: 0 },
@@ -70,7 +100,8 @@ test('look reports the nearest known block per heading and leaves empty headings
       S: { block: 'stone', distance: 3 },
       SW: { block: 'stone', distance: 3 }
     },
-    events: []
+    events: [],
+    executed: true
   })
 })
 
@@ -97,12 +128,19 @@ test('steps after success still run until the budget is spent', async (t) => {
   assert.deepEqual(
     { result, action_count: observation.action_count, done: observation.done, success: observation.success },
     {
-      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [] },
+      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true },
       action_count: 2,
       done: true,
       success: true
     }
   )
+})
+
+test('a step the world refuses reports executed false', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'craft', target: 'stick' })
+  assert.deepEqual(result, { ok: false, message: 'fake world cannot craft stick', output: null, events: [], executed: false })
 })
 
 test('the budget ends the episode and later steps are refused without counting', async (t) => {
@@ -112,7 +150,7 @@ test('the budget ends the episode and later steps are refused without counting',
   const { body: { observation, ...result } } = await call('POST', '/step', { action: 'mine', target: 'log' })
   assert.deepEqual(
     { result, action_count: observation.action_count, done: observation.done },
-    { result: { ok: false, message: 'episode is over', output: null, events: [] }, action_count: 1, done: true }
+    { result: { ok: false, message: 'episode is over', output: null, events: [], executed: false }, action_count: 1, done: true }
   )
 })
 
