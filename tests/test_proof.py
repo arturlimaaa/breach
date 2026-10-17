@@ -35,29 +35,29 @@ def step(action, target, rule_id, predicted, observed, verdict, **extra):
 
 
 LOGS = {
-    # The plan keeps crafting with the refuted stick rule, then recovers with a revised rule five actions later.
+    # The plan goes on, reuses the refuted stick rule, then a revision recovers five actions later.
     CONTRADICTED["id"]: [
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
-        step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
-        step("move", "east", None, {}, {}, "match", ok=True, events=[]),
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("move", "east", None, {}, {}, "match", ok=True, events=[], message="moved east"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
-        step("craft", "stick", "craft:stick@grid/stick-count-2", STICK_2, STICK_2, "match"),
+        step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
+        step("craft", "stick", "craft:stick#1", STICK_2, STICK_2, "match"),
     ],
-    # Mining again needs a move first, so repeating the refuted mine is not an immediate repeat. It never recovers.
+    # The move between two mines does not hide the repeat. It never recovers.
     DROPPED["id"]: [
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
         step("move", "east", None, {}, {}, "match"),
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
     ],
     # A failed hypothesis test and a quarantined step are not contradictions.
     CLEAN["id"]: [
-        step("mine", None, "mine:log", LOG, LOG, "match"),
+        step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick", {"planks": -2, "stick": 3}, STICK, "mismatch", test=True),
-        step("mine", None, "mine:stone", {"cobblestone": 1}, {}, "quarantined"),
+        step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "quarantined"),
     ],
 }
 
@@ -100,9 +100,9 @@ class ProofTests(unittest.TestCase):
             proof(self.run_dir)["episodes"],
             [
                 {**CONTRADICTED, "system": "D", "contradictions": 2, "actions_after_contradiction": 1,
-                 "immediate_repeat": 1, "recovery_latency": 5, "text_model_calls": 2, "tokens": 2400},
+                 "immediate_repeat": 0, "recovery_latency": 5, "text_model_calls": 2, "tokens": 2400},
                 {**DROPPED, "system": "D", "contradictions": 2, "actions_after_contradiction": 1,
-                 "immediate_repeat": 0, "recovery_latency": None, "text_model_calls": 0, "tokens": 0},
+                 "immediate_repeat": 1, "recovery_latency": None, "text_model_calls": 0, "tokens": 0},
                 {**CLEAN, "system": "D", "contradictions": 0, "actions_after_contradiction": None,
                  "immediate_repeat": None, "recovery_latency": None, "text_model_calls": 0, "tokens": 0},
             ],

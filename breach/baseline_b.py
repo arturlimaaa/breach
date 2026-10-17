@@ -6,6 +6,7 @@ from itertools import count, pairwise, repeat
 from typing import Any, Callable, Iterator
 
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
+from .planner import plan
 from .rules import TOOL_TIERS, Rule
 from .verify import classify
 from .world import RADIUS, VANILLA, Action, GridWorld, Observation, Position, StepResult, held_tier, rules_from_ruleset
@@ -51,6 +52,14 @@ def default_choose(state: State, options: dict[str, Option]) -> str:
         return {"explore": 4, "wait": 5}.get(kind, 6)
 
     return min(options, key=rank)
+
+
+def vanilla_plan(state: State) -> State:
+    """Fake Nemotron: the task goal as objective and the vanilla ingredient tree as targets."""
+    targets = Counter()
+    for step in plan(state["goal"], state["count"], {}, rules_from_ruleset(VANILLA, status="certified"), lambda block: 1):
+        targets.update({item: n for item, n in step.delta.items() if n > 0})
+    return {"objective": state["goal"], "targets": dict(targets)}
 
 
 def run_episode_b(
