@@ -7,8 +7,9 @@ from breach.llm import complete, list_models
 
 MESSAGES = [{"role": "user", "content": "Which item does a log craft into?"}]
 KEY = {"BREACH_LLM_API_KEY": "test-key"}
-OLLAMA = {"BREACH_LLM_BASE_URL": "http://127.0.0.1:11434/v1"}
-SAMPLING = {"stream": False, "temperature": 1.0, "top_p": 0.95, "seed": 42}
+CRUSOE = {"BREACH_LLM_BASE_URL": "https://api.inference.crusoecloud.com/v1"}
+OLLAMA = {"BREACH_LLM_BASE_URL": "http://localhost:11434/v1"}
+SAMPLING = {"stream": False, "top_p": 0.95, "seed": 42}
 
 
 def fake(sent, status=200, reply=None):
@@ -42,10 +43,22 @@ class CompleteTests(unittest.TestCase):
                 "https://integrate.api.nvidia.com/v1/chat/completions",
                 {"Authorization": "Bearer test-key", "Content-Type": "application/json"},
                 {
-                    "model": "nvidia/nemotron-3-super-120b-a12b", "messages": MESSAGES, **SAMPLING,
+                    "model": "nvidia/nemotron-3-super-120b-a12b", "messages": MESSAGES, **SAMPLING, "temperature": 0.95,
                     "max_tokens": 4096, "chat_template_kwargs": {"enable_thinking": False},
                 },
             )],
+        )
+
+    def test_crusoe_gets_its_model_id_and_nvidia_style_thinking(self):
+        sent = []
+        complete(MESSAGES, transport=fake(sent), env={**KEY, **CRUSOE}, episode="t1", step=3, purpose="plan")
+        url, headers, body = sent[0]
+        self.assertEqual(
+            (url, headers["Authorization"], body["model"], body["chat_template_kwargs"]),
+            (
+                "https://api.inference.crusoecloud.com/v1/chat/completions", "Bearer test-key",
+                "nvidia/Nemotron-3-Super-120B-A12B", {"enable_thinking": False},
+            ),
         )
 
     def test_thinking_on_nvidia_sends_a_top_level_budget_beside_the_schema(self):
@@ -57,7 +70,7 @@ class CompleteTests(unittest.TestCase):
         self.assertEqual(
             sent[0][2],
             {
-                "model": "nvidia/nemotron-3-super-120b-a12b", "messages": MESSAGES, **SAMPLING,
+                "model": "nvidia/nemotron-3-super-120b-a12b", "messages": MESSAGES, **SAMPLING, "temperature": 1.0,
                 "max_tokens": 4096 + 1024,
                 "chat_template_kwargs": {"enable_thinking": True},
                 "reasoning_budget": 1024,
@@ -76,9 +89,12 @@ class CompleteTests(unittest.TestCase):
         self.assertEqual(
             (url, headers, off, on["reasoning_effort"]),
             (
-                "http://127.0.0.1:11434/v1/chat/completions",
+                "http://localhost:11434/v1/chat/completions",
                 {"Content-Type": "application/json"},
-                {"model": "nemotron-3-nano:4b", "messages": MESSAGES, **SAMPLING, "max_tokens": 4096, "reasoning_effort": "none"},
+                {
+                    "model": "nemotron-3-nano:4b", "messages": MESSAGES, **SAMPLING, "temperature": 0.95,
+                    "max_tokens": 4096, "reasoning_effort": "none",
+                },
                 "high",
             ),
         )
@@ -132,7 +148,7 @@ class CompleteTests(unittest.TestCase):
         def transport(url, headers, body):
             raise AssertionError("transport called without a key")
 
-        with self.assertRaisesRegex(RuntimeError, "BREACH_LLM_API_KEY"):
+        with self.assertRaisesRegex(RuntimeError, "BREACH_LLM_API_KEY.*api.inference.crusoecloud.com"):
             complete(MESSAGES, transport=transport, env={}, episode="t1", step=3, purpose="plan")
 
 
