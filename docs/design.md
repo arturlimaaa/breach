@@ -98,7 +98,12 @@ Observation: `{server, position: {x,y,z}, inventory: {item: n}, visible:
 [{x,y,z,block}], action_count, budget, done, success}`. `events` lists
 death, damage, despawn seen during the step (drives `quarantined`).
 Actions: `move(direction|toward block)`, `mine`, `craft(item)`,
-`probe(item)`, `look`.
+`probe(item)`, `place(item)`, `look`. `place` puts a held block on an
+adjacent solid spot; a 3×3 craft or probe needs a crafting table within 4
+blocks and never auto-places. Crafting takes `grid` as an item multiset; the
+adapter lays known vanilla shapes out correctly (shape knowledge only, the
+server still decides what the grid produces; our datapack overrides are
+shapeless) and accepts explicit rows as an override.
 
 ## Change class
 
