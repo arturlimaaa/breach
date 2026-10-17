@@ -37,8 +37,8 @@ export function serve (world) {
     'GET /observe': async () => [200, observation()],
     'POST /step': async step => {
       if (typeof step?.action !== 'string') return [400, { error: 'body must be {action, target, grid}' }]
-      const before = observation()
-      if (before.done) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: before }]
+      // Steps go on after success, so recovery can still act before the episode returns; only the budget stops them.
+      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: observation() }]
       actions += 1
       return [200, { ...await world.act(step), observation: observation() }]
     }

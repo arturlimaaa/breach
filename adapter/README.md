@@ -90,6 +90,8 @@ Steps over Minecraft:
   `probe` reports the result slot, `{}` when empty, and puts everything back.
 - `events` lists `death`, `damage` (the bot was hurt), and `kicked` seen during the step.
 - Every step is bounded at 60 s. A timeout or an error inside the step is `ok: false` with a message.
+- Steps go on after the goal is reached, so recovery can still act; `done` and `success` report as before. Only a
+  spent budget refuses a step, with `ok: false` and `"episode is over"`, without counting it.
 
 The shape table is shape knowledge only, so that two planks go one above the other and do not craft a pressure plate.
 It says nothing about what a grid produces: the server decides that. The change datapacks are shapeless, so any
