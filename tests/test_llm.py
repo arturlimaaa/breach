@@ -57,7 +57,7 @@ class CompleteTests(unittest.TestCase):
             (url, headers["Authorization"], body["model"], body["chat_template_kwargs"]),
             (
                 "https://api.inference.crusoecloud.com/v1/chat/completions", "Bearer test-key",
-                "nvidia/Nemotron-3-Super-120B-A12B", {"enable_thinking": False},
+                "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", {"enable_thinking": False},
             ),
         )
 

@@ -22,7 +22,7 @@ _OLLAMA = {"model": "nemotron-3-nano:4b", "key": False, "thinking": "reasoning_e
 # What differs per endpoint. An unknown base URL is treated like NVIDIA's.
 PROVIDERS: dict[str, dict[str, Any]] = {
     # Crusoe's docs and ai-sdk.dev disagree on this id: confirm it with list_models() before a run.
-    "https://api.inference.crusoecloud.com/v1": {"model": "nvidia/Nemotron-3-Super-120B-A12B", "key": True, "thinking": "chat_template_kwargs"},
+    "https://api.inference.crusoecloud.com/v1": {"model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "key": True, "thinking": "chat_template_kwargs"},
     DEFAULT_BASE_URL: {"model": DEFAULT_MODEL, "key": True, "thinking": "chat_template_kwargs"},
     "http://localhost:11434/v1": _OLLAMA,
     "http://127.0.0.1:11434/v1": _OLLAMA,
