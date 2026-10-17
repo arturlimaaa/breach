@@ -172,13 +172,10 @@ class RecoveryTests(unittest.TestCase):
             ),
         )
 
-    def test_a_failed_inducer_call_is_a_failed_round_and_names_the_error_when_nothing_recovers(self):
-        outcomes = []
-        for rounds in ((RuntimeError("HTTP 503"), RuntimeError("HTTP 503")), (RuntimeError("HTTP 503"), [sticks(2)])):
-            induce, calls = scripted(*rounds)
-            result = run_episode(change_world("stick-count-2", STICKS), certified_store(), TransitionLog(), "hc", induce=induce)
-            outcomes.append((result.reason, len(calls)))
-        self.assertEqual(outcomes, [("inducer error: HTTP 503", 2), ("goal", 2)])
+    def test_an_inducer_error_ends_the_run_so_a_broken_model_never_reads_as_an_unrecovered_rule(self):
+        induce, calls = scripted(RuntimeError("HTTP 503"), [sticks(2)])
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            run_episode(change_world("stick-count-2", STICKS), certified_store(), TransitionLog(), "hc", induce=induce)
 
     def test_a_contradicting_craft_that_meets_the_goal_reports_success(self):
         world = change_world("furnace-count-2", Task("hc", "furnace", budget=350))

@@ -32,7 +32,7 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
     A string ends the episode. None lets the executor replan: with the revised record as a hypothesis, with the
     untested candidates of a round the budget cut short, or with the rule unrecovered after the last round.
     """
-    server, error = ex.world.server, None
+    server = ex.world.server
 
     def settle(note: str) -> None:
         ex.status.rule = shown(ex.store.rules[record.rule_id], note)
@@ -40,12 +40,9 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
 
     while ex.rounds[record.key] < ROUNDS:
         ex.rounds[record.key] += 1
-        note, start = None, perf_counter()
-        try:
-            proposed = ex.induce(record, counterexample, [t for t in ex.log if t.episode == ex.episode])
-        except Exception as exc:  # a transport or reply failure; llm.complete has already logged the call
-            proposed, note = [], f"inducer error: {exc}"
-            error = note
+        start = perf_counter()
+        # An inducer error ends the run: a broken model must not read as a rule that could not be recovered.
+        proposed = ex.induce(record, counterexample, [t for t in ex.log if t.episode == ex.episode])
         ex.status.calls += 1
         ex.status.latency_ms = round((perf_counter() - start) * 1000)
         fresh = (f"{record.rule_id}#{n}" for n in count(1) if f"{record.rule_id}#{n}" not in ex.store.rules)
@@ -54,7 +51,7 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
         for candidate in candidates:
             ex.store.add(candidate)
         heard = f"{len(candidates)} candidate{'' if len(candidates) == 1 else 's'}"
-        ex.status.rule = shown(record, note or heard, "revising")
+        ex.status.rule = shown(record, heard, "revising")
         ex.status.emit(ex)
         for candidate in order_tests(candidates, ex.observe().inventory):
             passed = _judged(ex, candidate, counterexample)
@@ -76,7 +73,7 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
                 return None
             # ponytail: a quarantined test counts as failed; retest it if hazards make that common.
             demote(ex.store, candidate.rule_id, server)
-    ex.unrecovered.append(error or f"unrecoverable {record.action}:{record.target}")
+    ex.unrecovered.append(f"unrecoverable {record.action}:{record.target}")
     settle(ex.unrecovered[-1])
     return None
 

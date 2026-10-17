@@ -5,8 +5,7 @@ from itertools import groupby
 from pathlib import Path
 
 from breach.log import TransitionLog
-from breach.loop import run_episode
-from breach.status import status_file
+from breach.loop import Executor, run_episode
 from breach.tasks import T1
 from tests.test_loop import certified_store
 from tests.test_recover import change_world, perfect
@@ -20,7 +19,9 @@ class StatusTests(unittest.TestCase):
     def test_a_recovery_shows_the_demotion_the_revision_and_the_plan_diff(self):
         writes = []
         world = change_world("stick-count-2", T1)
-        run_episode(world, certified_store(), TransitionLog(), "hc", induce=perfect(world)[0], status=writes.append)
+        executor = Executor(world, certified_store(), TransitionLog(), "hc", induce=perfect(world)[0])
+        executor.status.write = writes.append
+        executor.run()
         demoted = next(w for w in writes if w["rule"] and w["rule"]["status"] == "demoted")
         replanned = next(w for w in writes[writes.index(demoted):] if "current" in statuses(w))
         revising = next(w for w in writes if w["rule"] and w["rule"]["status"] == "revising")
@@ -39,18 +40,23 @@ class StatusTests(unittest.TestCase):
             ),
         )
 
-    def test_the_status_file_is_replaced_whole_and_stamped_with_the_run_start(self):
+    def test_episodes_writing_one_status_path_replace_it_whole_and_keep_the_run_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "status.json"
-            write = status_file(path)
-            write({"step": 1})
+            store, log = certified_store(), TransitionLog()
+            hc, hs = change_world("stick-count-2", T1), change_world("stick-count-2", T1)
+            induce = perfect(hc)[0]
+            run_episode(hc, store, log, "hc", induce=induce, status_path=path)
             first = json.loads(path.read_text())
-            write({"step": 2})
+            run_episode(hs, store, log, "hs", induce=induce, status_path=path)
             second = json.loads(path.read_text())
             left = sorted(p.name for p in Path(tmp).iterdir())
         self.assertEqual(
-            (second["step"], second["started"] == first["started"], second["updated"] >= first["updated"], second["updated"][-1], left),
-            (2, True, True, "Z", ["status.json"]),
+            (
+                (first["episode"], first["step"]), (second["episode"], second["step"]),
+                second["started"] == first["started"], second["updated"] >= first["updated"], second["updated"][-1], left,
+            ),
+            (("hc", hc.actions), ("hs", hs.actions), True, True, "Z", ["status.json"]),
         )
 
 

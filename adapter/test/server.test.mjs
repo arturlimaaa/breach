@@ -6,8 +6,8 @@ import { serve } from '../server.mjs'
 
 const BLOCKS = [{ x: 1, y: 64, z: 0, block: 'log' }, { x: 2, y: 64, z: 0, block: 'log' }, { x: 0, y: 63, z: 3, block: 'stone' }]
 
-async function start (t) {
-  const server = serve(new FakeWorld(BLOCKS)).listen(0, '127.0.0.1')
+async function start (t, log = () => {}) {
+  const server = serve(new FakeWorld(BLOCKS), log).listen(0, '127.0.0.1')
   await once(server, 'listening')
   t.after(() => server.close())
   const base = `http://127.0.0.1:${server.address().port}`
@@ -18,6 +18,34 @@ async function start (t) {
 }
 
 const task = (fields) => ({ task: { task_id: 't', goal: 'log', count: 2, budget: 3, inventory: { planks: 4 }, ...fields } })
+
+test('each reset and step prints one log line with its time, action, target, ok, message, and output', async (t) => {
+  const lines = []
+  const call = await start(t, line => lines.push(JSON.parse(line)))
+  await call('POST', '/reset', task())
+  await call('POST', '/step', { action: 'mine', target: 'log' })
+  await call('GET', '/observe')
+  assert.deepEqual(lines.map(({ time, ...line }) => ({ time: !Number.isNaN(Date.parse(time)), ...line })), [
+    {
+      time: true,
+      action: 'reset',
+      target: { task_id: 't', goal: 'log', count: 2, budget: 3, inventory: { planks: 4 } },
+      ok: true,
+      message: '/clear; /give @s planks 4',
+      output: null,
+      at: { x: 0, y: 64, z: 0 }
+    },
+    {
+      time: true,
+      action: 'mine',
+      target: 'log',
+      ok: true,
+      message: 'mined log',
+      output: { block_removed: true, collected: { log: 1 } },
+      at: { x: 0, y: 64, z: 0 }
+    }
+  ])
+})
 
 test('reset returns the observation of the task start and the commands that set it up', async (t) => {
   const call = await start(t)
