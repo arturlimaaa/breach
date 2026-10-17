@@ -14,6 +14,11 @@ HEADINGS: dict[str, Position] = {
     "N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1), "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1),
 }
 RADIUS = 8
+REACH = 1  # a station serves a craft from its own cell and the 8 around it
+
+
+def within(a: Position, b: Position) -> bool:
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1])) <= REACH
 
 
 @dataclass(frozen=True)
@@ -150,13 +155,18 @@ class GridWorld:
         if self.done:
             return self._result(False, "episode is over")
         self.actions += 1
-        handler = {"move": self._move, "mine": self._mine, "craft": self._craft, "probe": self._probe, "look": self._look}.get(action.name)
+        handler = {
+            "move": self._move, "mine": self._mine, "craft": self._craft, "probe": self._probe, "look": self._look, "place": self._place,
+        }.get(action.name)
         if handler is None:
             return self._result(False, f"unknown action {action.name}")
         return handler(action)
 
     def _result(self, ok: bool, message: str, output: dict[str, Any] | None = None) -> StepResult:
         return StepResult(ok, message, output, self.observe())
+
+    def _reaches(self, block: str) -> bool:
+        return any(b == block and within(p, self.position) for p, b in self.blocks.items())
 
     def _move(self, action: Action) -> StepResult:
         offset = DIRECTIONS.get(action.target or "")
@@ -180,8 +190,8 @@ class GridWorld:
         recipe = self.ruleset.recipes.get(action.target or "")
         if recipe is None:
             return self._result(False, f"no recipe for {action.target}")
-        if recipe.station and self.inventory[recipe.station] < 1:
-            return self._result(False, f"{action.target} needs a {recipe.station}")
+        if recipe.station and not self._reaches(recipe.station):
+            return self._result(False, f"{action.target} needs a {recipe.station} within reach")
         missing = {k: v - self.inventory[k] for k, v in recipe.inputs.items() if self.inventory[k] < v}
         if missing:
             return self._result(False, f"missing {missing}")
@@ -195,9 +205,22 @@ class GridWorld:
         if any(self.inventory[k] < v for k, v in grid.items()):
             return self._result(False, "cannot place what is not held")
         for item, recipe in self.ruleset.recipes.items():
-            if recipe.inputs == grid and not (recipe.station and self.inventory[recipe.station] < 1):
+            if recipe.inputs == grid and (recipe.station is None or self._reaches(recipe.station)):
                 return self._result(True, f"output slot shows {recipe.output} {item}", {item: recipe.output})
         return self._result(True, "output slot is empty", {})
+
+    def _place(self, action: Action) -> StepResult:
+        """Put a held block on the bot's cell, else on the first free neighbour."""
+        block = action.target or ""
+        if self.inventory[block] < 1:
+            return self._result(False, f"no {block} held")
+        x0, z0 = self.position
+        cell = next((c for c in [(x0, z0), *((x0 + dx, z0 + dz) for dx, dz in DIRECTIONS.values())] if c not in self.blocks), None)
+        if cell is None:
+            return self._result(False, f"no free cell at or next to {self.position}")
+        self.blocks[cell] = block
+        self.inventory[block] -= 1
+        return self._result(True, f"placed {block} at {cell}", {block: -1})
 
     def _look(self, action: Action) -> StepResult:
         """Nearest block per heading in a corridor 7 wide and 48 steps long; a heading with nothing in it is left out."""

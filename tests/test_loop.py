@@ -7,8 +7,8 @@ from breach.certify import replay
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.store import RuleStore
-from breach.tasks import H1, H2, T1
-from breach.world import VANILLA, GridWorld, Recipe, rules_from_ruleset
+from breach.tasks import H1, H2, T1, T2
+from breach.world import VANILLA, GridWorld, Recipe, Task, rules_from_ruleset
 
 GOLDEN = Path(__file__).parent / "golden"
 
@@ -30,6 +30,18 @@ class Hurt(GridWorld):
     def step(self, action):
         result = super().step(action)
         return replace(result, events=["damage"]) if action.target == "stick" else result
+
+
+class Slippery(GridWorld):
+    """Its first mine fails, as a live server's can when the bot misses the block."""
+
+    missed = False
+
+    def _mine(self, action):
+        if self.missed:
+            return super()._mine(action)
+        self.missed = True
+        return self._result(False, "missed the block")
 
 
 class LoopTests(unittest.TestCase):
@@ -60,8 +72,27 @@ class LoopTests(unittest.TestCase):
         result = run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")
         self.assertEqual(
             (result.actions, [(t.action, t.target) for t in log if t.action != "move"]),
-            (19, [("mine", "log"), ("craft", "planks"), ("craft", "crafting_table"), ("mine", "log"), ("craft", "planks"),
-                  ("craft", "stick"), ("mine", "log"), ("craft", "planks"), ("craft", "wooden_pickaxe")]),
+            (20, [("mine", "log"), ("craft", "planks"), ("craft", "crafting_table"), ("mine", "log"), ("craft", "planks"),
+                  ("craft", "stick"), ("mine", "log"), ("craft", "planks"), ("place", "crafting_table"), ("craft", "wooden_pickaxe")]),
+        )
+
+    def test_a_table_is_placed_once_before_the_first_3x3_craft_and_walked_back_to_for_the_next(self):
+        log = TransitionLog()
+        result = run_episode(GridWorld(T2, seed=1), certified_store(), log, "t2")
+        stations = [(t.action, t.target) for t in log if t.action == "place" or t.target in ("wooden_pickaxe", "stone_pickaxe")]
+        self.assertEqual(
+            (result.reason, stations, log.contradictions()),
+            ("goal", [("place", "crafting_table"), ("craft", "wooden_pickaxe"), ("craft", "stone_pickaxe")], []),
+        )
+
+    def test_a_mine_that_left_its_block_is_a_failed_step_not_a_contradiction(self):
+        log = TransitionLog()
+        result = run_episode(Slippery(Task("p", "planks"), seed=1), certified_store(), log, "p")
+        nothing = replace(VANILLA, drops={**VANILLA.drops, "stone": {}})
+        dropped = run_episode(GridWorld(T2, seed=1, ruleset=nothing, server="grid/stone-drop-nothing"), certified_store(), TransitionLog(), "hc")
+        self.assertEqual(
+            (result.reason, [(t.cls, t.verdict) for t in log if t.action == "mine"], log.contradictions(), dropped.reason),
+            ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at mine:stone"),
         )
 
     def test_t1_seed_1_logs_the_golden_transitions(self):

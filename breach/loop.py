@@ -13,10 +13,12 @@ from .rules import Rule
 from .status import Status, shown, status_file
 from .store import RuleStore
 from .verify import classify
-from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
+from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult, within
 
 # ponytail: after a look with no output, 8 legs walk 4 blocks out, 12 with the view; look again if failed looks strand live runs.
 SPIRAL_LEGS = 8
+# ponytail: walking back to a remembered block allows 4 failed or detoured moves; raise it if live walks stop short.
+SIGHT_MARGIN = 4
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ class Executor:
             # A probe consumes nothing; a test probe is checked exactly on what the output slot shows.
             observed, cls = result.output or {}, "exact"
         else:
-            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target)
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.ok)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
@@ -96,15 +98,28 @@ class Executor:
         self.observe()
         if self.nearest(block) is None and not self.explore_until(block):
             return False
+        target = self.nearest(block)
         if self.world.paths:
+            # A toward-move reaches only a block in view, so walk at a remembered one until an observation shows it.
+            seen = self.observe()
+            for _ in range(_away(self.world.position, target) + SIGHT_MARGIN):
+                if self.world.done or any(b == block for *_, b in seen.visible):
+                    break
+                seen = self.act(Action("move", _heading(self.world.position, target)))[1].observation
             # One move paths next to the block and the mine walks the last metre. A failed path is not retried.
             return not self.world.done and self.act(Action("move", block))[1].ok
-        target = self.nearest(block)
         while self.world.position != target and not self.world.done:
-            dx, dz = target[0] - self.world.position[0], target[1] - self.world.position[1]
-            direction = ("east" if dx > 0 else "west") if dx else ("south" if dz > 0 else "north")
-            self.act(Action("move", direction))
+            self.act(Action("move", _heading(self.world.position, target)))
         return self.world.position == target
+
+    def station(self, block: str) -> bool:
+        """Bring a `block` within reach for a craft or probe: walk to the nearest one on the map, else place the one held."""
+        self.observe()
+        if any(b == block and within(p, self.world.position) for p, b in self.known.items()):
+            return True
+        if self.nearest(block) is not None:
+            return self.travel_to(block)
+        return not self.world.done and self.act(Action("place", block))[1].ok
 
     def explore_until(self, block: str) -> bool:
         """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight.
@@ -148,9 +163,10 @@ class Executor:
         task = self.world.task
         while not self.world.done:
             inventory, server = dict(self.observe().inventory), self.world.server
-            steps = plan(task.goal, task.count, inventory, self.store.usable(server), self.distance)
+            on_map = set(self.known.values())
+            steps = plan(task.goal, task.count, inventory, self.store.usable(server), self.distance, on_map)
             if steps is None:
-                steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance)
+                steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance, on_map)
             if steps is None:
                 return self.unrecovered[-1] if self.unrecovered else "no certified plan"
             self.status.planned(steps)
@@ -168,6 +184,8 @@ class Executor:
                 return None
             if step.action == "mine" and not self.travel_to(step.target):
                 return None if self.world.done else f"no reachable {step.target}"
+            if step.action == "craft" and step.near and not self.station(step.near):
+                return None if self.world.done else f"no reachable {step.near}"
             if self.world.done:
                 return None
             grid = {item: -n for item, n in step.delta.items() if n < 0} if step.action == "craft" else None
@@ -176,8 +194,8 @@ class Executor:
                 continue
             if transition.cls == "exact" and transition.verdict == "mismatch":
                 return transition
-            # The event may have moved the inventory off the plan; finishing it would blame the next rule.
-            if transition.verdict == "quarantined":
+            # An event or a mine that left its block put the inventory off the plan; finishing it would blame the next rule.
+            if transition.verdict in ("quarantined", "mismatch"):
                 return None
             if step.test and transition.verdict == "match" and self.confirmed(step.rule_id):
                 return None
@@ -216,6 +234,15 @@ def _spiral_legs():
     for n in count(1):
         for direction in ("east", "south") if n % 2 else ("west", "north"):
             yield direction, n
+
+
+def _away(a: Position, b: Position) -> int:
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def _heading(src: Position, dst: Position) -> str:
+    dx, dz = dst[0] - src[0], dst[1] - src[1]
+    return ("east" if dx > 0 else "west") if dx else ("south" if dz > 0 else "north")
 
 
 def run_episode(

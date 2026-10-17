@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
-from typing import Callable
 
 from .rules import TOOL_TIERS, Rule
 
@@ -20,8 +20,13 @@ class Step:
     test: bool = False
 
 
-def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], distance: Callable[[str], int | None]) -> list[Step] | None:
+def plan(
+    goal: str, count: int, inventory: dict[str, int], rules: list[Rule], distance: Callable[[str], int | None],
+    stations: Collection[str] = (),
+) -> list[Step] | None:
     """Minimum-action plan to hold `count` of `goal`, or None when no certified rule chain produces it.
+
+    `stations` names the block types already on the map: a craft whose station is one of them needs no table made.
 
     ponytail: greedy per item (cheapest producer, prerequisites ordered deepest first, spent inputs
     made again); exact search if competing inputs make greedy plans measurably longer than minimal.
@@ -68,7 +73,7 @@ def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], di
             if choice is None or item in pending:
                 return False
             rule, inner = choice[1], pending | {item}
-            if rule.action == "craft" and rule.near and not ensure(rule.near, 1, inner):
+            if rule.action == "craft" and rule.near and rule.near not in stations and not ensure(rule.near, 1, inner):
                 return False
             if rule.tool and TOOL_TIERS[rule.tool] > held_tier() and not ensure(rule.tool, 1, inner):
                 return False

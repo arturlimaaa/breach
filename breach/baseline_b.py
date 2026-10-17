@@ -10,7 +10,7 @@ from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import plan
 from .rules import TOOL_TIERS, Rule
 from .verify import classify
-from .world import RADIUS, VANILLA, Action, GridWorld, Observation, Position, StepResult, held_tier, rules_from_ruleset
+from .world import RADIUS, VANILLA, Action, GridWorld, Observation, Position, StepResult, held_tier, rules_from_ruleset, within
 
 COOLDOWN = 5
 State = dict[str, Any]
@@ -26,30 +26,51 @@ class EpisodeResultB:
 
 
 def menu(bundled: list[Rule], obs: Observation, known: dict[Position, str]) -> dict[str, Option]:
-    """Options from the observation, judged by the bundled table, never by the server's rules."""
-    held, visible = Counter(obs.inventory), {b for *_, b in obs.visible}
+    """Options from the observation, judged by the bundled table, never by the server's rules.
+
+    A craft with a station needs one placed within reach. A held station can be placed when none is in reach; the
+    option carries a craft it would let through, for the chooser to rank it by.
+    """
+    held, visible, reach = Counter(obs.inventory), {b for *_, b in obs.visible}, _reach(obs)
     options: dict[str, Option] = {}
+    waiting: list[Rule] = []
     for rule in bundled:
-        if rule.action == "craft" and Counter(rule.inputs) <= held and (rule.near is None or held[rule.near]):
-            options[f"craft {rule.target} x{rule.delta[rule.target]}"] = ("craft", rule)
+        if rule.action == "craft" and Counter(rule.inputs) <= held:
+            if rule.near is None or rule.near in reach:
+                options[f"craft {rule.target} x{rule.delta[rule.target]}"] = ("craft", rule)
+            else:
+                waiting.append(rule)
         elif rule.action == "mine" and TOOL_TIERS[rule.tool] <= held_tier(held):
             if rule.target in visible:
                 options[f"mine {rule.target}"] = ("mine", rule)
             elif rule.target in known.values():
                 options[f"move toward {rule.target}"] = ("move", rule)
+    for station in sorted(_stations(bundled)):
+        if held[station] and station not in reach:
+            crafts = [rule for rule in waiting if rule.near == station]
+            # ponytail: the menu does not know the objective, so the tag is the output held least, then the biggest craft;
+            # pass the chooser's wants in if a task's objective loses this tie.
+            tag = min(crafts, key=lambda rule: (held[rule.target], -sum(rule.inputs.values())), default=None)
+            options[f"place {station}"] = ("place", tag)
     return options | {"explore": ("explore", None), "wait": ("wait", None)}
 
 
 def default_choose(state: State, options: dict[str, Option]) -> str:
-    """Craft the objective, else craft, mine, or move toward a missing target, else explore, else wait."""
-    missing = {item for item, n in state["targets"].items() if state["inventory"].get(item, 0) < n}
+    """Craft the objective, else craft, mine, or move toward a missing target, else explore, else wait.
+
+    Placing a station ranks as the craft it lets through, so a table goes down just before its first use. A station
+    placed within reach counts as held, so placing one does not send B to make another.
+    """
+    have = Counter(state["inventory"]) + Counter(state.get("placed", ()))
+    missing = {item for item, n in state["targets"].items() if have[item] < n}
 
     def rank(key: str) -> int:
         kind, rule = options[key]
-        if kind == "craft" and rule.target == state["objective"]:
+        act = "craft" if kind == "place" else kind
+        if act == "craft" and rule is not None and rule.target == state["objective"]:
             return 0
         if rule is not None and missing & rule.outputs.keys():
-            return ("craft", "mine", "move").index(kind) + 1
+            return ("craft", "mine", "move").index(act) + 1
         return {"explore": 4, "wait": 5}.get(kind, 6)
 
     return min(options, key=rank)
@@ -87,7 +108,10 @@ def run_episode_b(
         obs = world.observe()
         known = {p: b for p, b in known.items() if _distance(p, obs.position) > RADIUS} | {(x, z): b for x, z, b in obs.visible}
         options = {k: v for k, v in menu(bundled, obs, known).items() if cooldown.get(k, 0) < step}
-        state = {"goal": world.task.goal, "count": world.task.count, "inventory": obs.inventory, "failures": failures}
+        state = {
+            "goal": world.task.goal, "count": world.task.count, "inventory": obs.inventory, "failures": failures,
+            "placed": sorted(_reach(obs) & _stations(bundled)),
+        }
         if step == 1 or len(failures) >= 3 or options.keys() == {"wait"}:
             # ponytail: synchronous, so a plan costs no actions; rmalde's planner is async and B acts while it thinks.
             plan, failures, calls = plan_fn(state), [], calls + 1
@@ -105,6 +129,8 @@ def run_episode_b(
             result = act(Action("move", next(spiral)))
         elif kind == "move":
             result = act(Action("move", _heading(world.position, _nearest(known, rule.target, world.position))))
+        elif kind == "place":
+            result = act(Action("place", key.removeprefix("place ")))
         else:
             result = act(Action(kind, rule.target, rule.inputs if kind == "craft" else None), rule)
         if result.ok:
@@ -122,7 +148,7 @@ def step_and_log(world: GridWorld, log: TransitionLog, episode: str, action: Act
     predicted = dict(rule.delta) if rule else {}
     observed = diff(before.inventory, result.observation.inventory)
     target = rule.target if rule else action.target
-    cls = classify(action.name, target)
+    cls = classify(action.name, target, result.ok)
     log.append(Transition(
         episode, world.actions, world.server, obs_hash(before), action.name, target,
         f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
@@ -143,6 +169,14 @@ def immediate_repeat_rate(log: TransitionLog) -> float:
 
 def _distance(a: Position, b: Position) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def _reach(obs: Observation) -> set[str]:
+    return {b for x, z, b in obs.visible if within((x, z), obs.position)}
+
+
+def _stations(bundled: list[Rule]) -> set[str]:
+    return {rule.near for rule in bundled if rule.action == "craft" and rule.near}
 
 
 def _nearest(known: dict[Position, str], block: str, position: Position) -> Position:

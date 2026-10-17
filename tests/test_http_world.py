@@ -15,7 +15,7 @@ from breach.http_world import HttpWorld, parse
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.proof import proof
-from breach.tasks import H2, T1
+from breach.tasks import H2, T1, T3
 from breach.world import VANILLA, Action, GridWorld, Task
 from tests.fake_adapter import serve
 from tests.test_baseline_a import T1_PLAN
@@ -24,6 +24,7 @@ from tests.test_induce import scripted
 ROOT = Path(__file__).resolve().parents[1]
 PLANKS = Task("p", "planks")
 TOWARD, MINE, CRAFT_PLANKS = ("move", {"toward": "log"}, None), ("mine", "log", None), ("craft", "planks", {"log": 1})
+PLACE_TABLE = ("place", "crafting_table", None)
 
 
 def seed_1(task):
@@ -138,7 +139,7 @@ class HttpWorldTests(unittest.TestCase):
         self.assertEqual(
             (result.reason, len(log) == result.actions, [(t.action, t.target, t.verdict) for t in log]),
             ("goal", True, [*travel, ("craft", "crafting_table", "match"), *travel, ("craft", "stick", "match"), *travel,
-                            ("craft", "wooden_pickaxe", "match")]),
+                            ("place", "crafting_table", "match"), ("craft", "wooden_pickaxe", "match")]),
         )
 
     def test_the_executor_sends_the_toward_target_the_block_to_mine_and_the_craft_grid(self):
@@ -146,7 +147,7 @@ class HttpWorldTests(unittest.TestCase):
         run_episode(HttpWorld(self.adapter(seed_1, steps.append), T1), certified_vanilla(), TransitionLog(), "t1")
         self.assertEqual(wire(steps), [
             TOWARD, MINE, CRAFT_PLANKS, ("craft", "crafting_table", {"planks": 4}), TOWARD, MINE, CRAFT_PLANKS,
-            ("craft", "stick", {"planks": 2}), TOWARD, MINE, CRAFT_PLANKS, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
+            ("craft", "stick", {"planks": 2}), TOWARD, MINE, CRAFT_PLANKS, PLACE_TABLE, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
         ])
 
     def test_a_failed_toward_move_is_logged_once_and_ends_the_episode(self):
@@ -190,12 +191,19 @@ class HttpWorldTests(unittest.TestCase):
         result = run_episode(world, certified_vanilla(), log, "p")
         self.assertEqual((result.reason, [(t.action, t.target) for t in log]), ("budget", [("look", None), ("move", "east")]))
 
+    def test_a_remembered_block_out_of_view_is_walked_back_into_view_so_t3_finishes_on_seeds_1_to_10(self):
+        reasons = []
+        for seed in range(1, 11):
+            url = self.adapter(lambda task, seed=seed: GridWorld(task, seed=seed))
+            reasons.append(run_episode(HttpWorld(url, T3), certified_vanilla(), TransitionLog(), "t3").reason)
+        self.assertEqual(reasons, ["goal"] * 10)
+
     def test_b_sends_the_block_to_mine_and_the_craft_grid(self):
         steps = []
         run_episode_b(HttpWorld(self.adapter(seed_1, steps.append), T1), TransitionLog(), "t1", vanilla_plan)
         self.assertEqual([s for s in wire(steps) if s[0] != "move"], [
             MINE, CRAFT_PLANKS, ("craft", "stick", {"planks": 2}), MINE, CRAFT_PLANKS, ("craft", "crafting_table", {"planks": 4}),
-            MINE, CRAFT_PLANKS, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
+            MINE, CRAFT_PLANKS, PLACE_TABLE, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
         ])
 
     def test_a_sends_the_block_to_mine_and_the_craft_grid(self):
@@ -204,7 +212,7 @@ class HttpWorldTests(unittest.TestCase):
         run_episode_a(HttpWorld(self.adapter(seed_1, steps.append), T1), TransitionLog(), "t1", complete)
         self.assertEqual([s for s in wire(steps) if s[0] != "move"], [
             MINE, CRAFT_PLANKS, ("craft", "crafting_table", {"planks": 4}), MINE, CRAFT_PLANKS, ("craft", "stick", {"planks": 2}),
-            MINE, CRAFT_PLANKS, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
+            MINE, CRAFT_PLANKS, PLACE_TABLE, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
         ])
 
     def test_b_over_http_repeats_the_grid_episode(self):
@@ -221,10 +229,10 @@ class HttpWorldTests(unittest.TestCase):
             run_jobs(run_episode, [(T1, 1, "grid/vanilla", VANILLA, None)], certified_vanilla, grid, name="D")
             [entry], [grid_entry] = (json.loads((d / "manifest.json").read_text())["episodes"] for d in (run, grid))
             [proven] = proof(run)["episodes"]
-        # The adapter paths, so the live episode takes one move per mine: 12 actions where the grid takes 19.
+        # The adapter paths, so the live episode takes one move per mine: 13 actions where the grid takes 20.
         self.assertEqual(
             (entry, proven["system"], proven["contradictions"]),
-            (grid_entry | {"id": "t1", "seed": None, "reset": "/clear", "actions": 12}, "D", 0),
+            (grid_entry | {"id": "t1", "seed": None, "reset": "/clear", "actions": 13}, "D", 0),
         )
 
 

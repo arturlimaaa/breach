@@ -2,12 +2,12 @@ import unittest
 from dataclasses import replace
 from itertools import pairwise
 
-from breach.baseline_b import COOLDOWN, default_choose, immediate_repeat_rate, run_episode_b, vanilla_plan
+from breach.baseline_b import COOLDOWN, default_choose, immediate_repeat_rate, menu, run_episode_b, vanilla_plan
 from breach.certify import replay
 from breach.log import Transition, TransitionLog
 from breach.tasks import T1, T2
-from breach.world import VANILLA, GridWorld, Recipe, Task
-from tests.test_loop import GOLDEN, Hurt
+from breach.world import VANILLA, GridWorld, Observation, Recipe, Task, rules_from_ruleset
+from tests.test_loop import GOLDEN, Hurt, Slippery
 
 
 def changed(item, recipe):
@@ -32,6 +32,32 @@ class BaselineBTests(unittest.TestCase):
         log = TransitionLog()
         run_episode_b(GridWorld(T1, seed=1), log, "t1", vanilla_plan)
         self.assertEqual(list(log), list(TransitionLog(GOLDEN / "b-t1-s1.jsonl")))
+
+    def test_a_station_craft_needs_a_table_in_reach_and_a_held_table_can_be_placed(self):
+        held = {"planks": 3, "stick": 2, "crafting_table": 1}
+        offered = []
+        for visible in ([], [(1, 1, "crafting_table")]):
+            obs = Observation("grid/vanilla", (0, 0), held, visible, 0, 150, False, False)
+            offered.append(sorted(key for key in menu(rules_from_ruleset(VANILLA), obs, {}) if key.startswith(("craft wooden", "place"))))
+        self.assertEqual(offered, [["place crafting_table"], ["craft wooden_pickaxe x1"]])
+
+    def test_placing_ranks_as_the_waiting_craft_furthest_along_and_a_placed_table_counts_as_held(self):
+        held = {"planks": 3, "stick": 2, "cobblestone": 8, "crafting_table": 1, "wooden_pickaxe": 1}
+        obs = Observation("grid/vanilla", (0, 0), held, [], 0, 300, False, False)
+        _, tag = menu(rules_from_ruleset(VANILLA), obs, {})["place crafting_table"]
+        state = {"inventory": {"planks": 7, "stick": 2}, "placed": ["crafting_table"], "objective": "furnace",
+                 "targets": {"crafting_table": 1, "wooden_pickaxe": 1}}
+        rules = {r.target: r for r in rules_from_ruleset(VANILLA)}
+        options = {"craft crafting_table x1": ("craft", rules["crafting_table"]), "craft wooden_pickaxe x1": ("craft", rules["wooden_pickaxe"])}
+        self.assertEqual((tag.target, default_choose(state, options)), ("furnace", "craft wooden_pickaxe x1"))
+
+    def test_a_mine_that_left_its_block_is_logged_tolerant(self):
+        log = TransitionLog()
+        result = run_episode_b(Slippery(Task("p", "planks"), seed=1), log, "p", vanilla_plan)
+        self.assertEqual(
+            (result.success, [(t.cls, t.verdict) for t in log if t.action == "mine"][:1], log.contradictions()),
+            (True, [("tolerant", "mismatch")], []),
+        )
 
     def test_budget_exhausted_on_arrival_logs_no_phantom_step(self):
         full = TransitionLog()
@@ -66,8 +92,10 @@ class BaselineBTests(unittest.TestCase):
         )
 
     def test_replans_after_three_consecutive_failures(self):
-        task = replace(T1, budget=4, inventory={"log": 1, "planks": 4, "stick": 2, "crafting_table": 1})
-        result = run_episode_b(GridWorld(task, seed=1, ruleset=replace(VANILLA, recipes={})), TransitionLog(), "x", vanilla_plan)
+        task = replace(T1, budget=4, inventory={"log": 1, "planks": 4, "stick": 2})
+        world = GridWorld(task, seed=1, ruleset=replace(VANILLA, recipes={}))
+        world.blocks[(0, 0)] = "crafting_table"
+        result = run_episode_b(world, TransitionLog(), "x", vanilla_plan)
         self.assertEqual(result.planner_calls, 2)
 
     def test_moves_toward_a_remembered_block_out_of_view(self):

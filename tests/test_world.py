@@ -40,6 +40,24 @@ class GridWorldTests(unittest.TestCase):
             (True, {"S": {"block": "log", "distance": 30}, "NE": {"block": "log", "distance": 21}}, {"planks": 2}, 1),
         )
 
+    def test_place_puts_a_held_block_on_the_bots_cell_then_on_a_free_neighbour(self):
+        world = GridWorld(T1, seed=7, inventory={"crafting_table": 2})
+        world.blocks = {(1, 0): "log"}
+        placed = [world.step(Action("place", "crafting_table")).ok for _ in range(3)]
+        self.assertEqual(
+            (placed, world.blocks, world.inventory["crafting_table"]),
+            ([True, True, False], {(1, 0): "log", (0, 0): "crafting_table", (-1, 0): "crafting_table"}, 0),
+        )
+
+    def test_a_3x3_craft_and_its_probe_need_a_table_block_within_one_cell_not_one_held(self):
+        outcomes = []
+        for table in (None, (2, 0), (1, 1)):
+            world = GridWorld(T1, seed=7, inventory={"planks": 3, "stick": 2, "crafting_table": 1})
+            world.blocks = {} if table is None else {table: "crafting_table"}
+            shown = world.step(Action("probe", "wooden_pickaxe", grid={"planks": 3, "stick": 2})).output
+            outcomes.append((shown, world.step(Action("craft", "wooden_pickaxe")).ok))
+        self.assertEqual(outcomes, [({}, False), ({}, False), ({"wooden_pickaxe": 1}, True)])
+
     def test_stone_needs_a_pickaxe(self):
         world = GridWorld(T1, seed=7)
         world.position = next(p for p, b in world.blocks.items() if b == "stone")

@@ -12,7 +12,7 @@ from tests.test_induce import scripted
 T1_PLAN = [
     "mine log", "craft planks x4", "craft crafting_table x1",
     "mine log", "craft planks x4", "craft stick x4",
-    "mine log", "craft planks x4", "craft wooden_pickaxe x1",
+    "mine log", "craft planks x4", "place crafting_table", "craft wooden_pickaxe x1",
 ]
 LADDER = Task("hs", "ladder")
 PROMPT = """Plan a task in a 2D grid version of Minecraft: hold 1 wooden_pickaxe within 150 actions.
@@ -22,13 +22,14 @@ Options and the inventory change each one causes, negative consumed and positive
 - "craft stick x4": {"planks": -2, "stick": 4}
 - "craft crafting_table x1": {"planks": -4, "crafting_table": 1}
 - "craft torch x4": {"coal": -1, "stick": -1, "torch": 4}
-- "craft wooden_pickaxe x1": {"planks": -3, "stick": -2, "wooden_pickaxe": 1}, needs a crafting_table held
-- "craft stone_pickaxe x1": {"cobblestone": -3, "stick": -2, "stone_pickaxe": 1}, needs a crafting_table held
-- "craft furnace x1": {"cobblestone": -8, "furnace": 1}, needs a crafting_table held
-- "craft ladder x3": {"stick": -7, "ladder": 3}, needs a crafting_table held
+- "craft wooden_pickaxe x1": {"planks": -3, "stick": -2, "wooden_pickaxe": 1}, needs a crafting_table placed within reach
+- "craft stone_pickaxe x1": {"cobblestone": -3, "stick": -2, "stone_pickaxe": 1}, needs a crafting_table placed within reach
+- "craft furnace x1": {"cobblestone": -8, "furnace": 1}, needs a crafting_table placed within reach
+- "craft ladder x3": {"stick": -7, "ladder": 3}, needs a crafting_table placed within reach
 - "mine log": {"log": 1}
 - "mine stone": {"cobblestone": 1}, needs a wooden_pickaxe held
 - "mine coal_ore": {"coal": 1}, needs a wooden_pickaxe held
+- "place crafting_table": put the held crafting_table down next to you, where it stays
 - "move toward <block>": one step toward the nearest <block> seen before and now out of view
 - "explore": one step along an outward square spiral
 - "wait": no action
@@ -72,13 +73,15 @@ class BaselineATests(unittest.TestCase):
         )
 
     def test_each_failure_is_appended_to_one_conversation_and_asked_again(self):
-        task = Task("x", "stone_pickaxe", budget=2, inventory={"cobblestone": 3, "stick": 2, "crafting_table": 1})
+        task = Task("x", "stone_pickaxe", budget=2, inventory={"cobblestone": 3, "stick": 2})
         replies = [
             json.dumps(["craft stone_pickaxe x1"]), json.dumps(["wait"]), json.dumps(["craft furnace x1"]),
             "Mine a log first.", json.dumps({"plan": ["wait"]}), json.dumps(["craft stone_pickaxe x1"]),
         ]
         complete, calls = scripted(*replies)
-        result = run_episode_a(change_world("stone_pickaxe-add-coal", task), TransitionLog(), "x", complete)
+        world = change_world("stone_pickaxe-add-coal", task)
+        world.blocks[(0, 0)] = "crafting_table"
+        result = run_episode_a(world, TransitionLog(), "x", complete)
         conversation = calls[-1][0]
         said = [m["content"] for m in conversation if m["role"] == "assistant"]
         heads = [m["content"].splitlines()[0] for m in conversation[2::2]]
