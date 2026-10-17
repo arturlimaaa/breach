@@ -6,8 +6,11 @@ set -euo pipefail
 dir="$(cd "$(dirname "$0")/.." && pwd)/server"
 cd "$dir"
 [ -d world.pristine ] || { echo "no $dir/world.pristine to reset from" >&2; exit 1; }
+# start.sh runs the java on PATH; without one the server would stop here and never come back.
+java -version >/dev/null 2>&1 || { echo "java does not run here; put a JDK on PATH: \$(brew --prefix openjdk@17)/bin" >&2; exit 1; }
 
-running () { pgrep -f 'jar server.jar nogui' >/dev/null; }
+# Anchored on the java binary, so a shell whose command line mentions server.jar does not count.
+running () { pgrep -f '(^|/)java .*-jar server.jar nogui' >/dev/null; }
 
 if running; then
   screen -S mc -p 0 -X stuff $'stop\r'

@@ -43,8 +43,10 @@ console for further commands.
 `setup/reset-world.sh` resets the world between runs. It sends `stop` to the screen session `mc` and waits for the
 server to exit. It then replaces `server/world` with `server/world.pristine` and starts `start.sh` in a new detached
 screen session `mc`, returning once the server logs `Done`. It leaves the world alone unless the pristine copy exists
-and the server has exited. It finds the server by its command line, `jar server.jar nogui`, so it assumes one server on
-the machine. The adapter exits when its bot is dropped, so start the adapter again afterwards.
+and the server has exited. It refuses to start when `java` does not run, since `start.sh` runs the `java` on `PATH`;
+from a shell without the JDK on `PATH`, prefix `PATH="$(brew --prefix openjdk@17)/bin:$PATH"`. It finds the server by
+its `java -jar server.jar nogui` command line, so it assumes one server on the machine. The adapter exits when its bot
+is dropped, so start the adapter again afterwards.
 
 `server/world.pristine` is a world generated from seed 12345 that no player has entered, with an empty `datapacks`
 folder. To make a new one: stop the server, move `server/world` aside, start the server so it generates a world, stop
