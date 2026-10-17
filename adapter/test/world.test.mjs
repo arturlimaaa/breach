@@ -302,3 +302,50 @@ test('a heading move with an unknown heading is refused without executing', asyn
     }
   )
 })
+
+test('a trunk under leaves one block away is in the observation and minable', async () => {
+  // Leaves above and around the trunk, dirt under it: only its face toward the bot touches air, and no ray from the
+  // bot's eyes reaches its center.
+  const cells = new Map([
+    [[1, 64, 0], 'oak_log'], [[1, 65, 0], 'oak_leaves'], [[2, 64, 0], 'oak_leaves'], [[1, 64, 1], 'oak_leaves'],
+    [[1, 64, -1], 'oak_leaves'], [[1, 63, 0], 'dirt']
+  ].map(([cell, name]) => [String(new Vec3(...cell)), { position: new Vec3(...cell), name }]))
+  let items = []
+  const bot = Object.assign(new EventEmitter(), {
+    entity: { position: new Vec3(0.5, 64, 0.5) },
+    entities: {},
+    inventory: { items: () => items },
+    findBlocks: () => [...cells.values()].map(cell => cell.position),
+    blockAt: at => ({ name: cells.get(String(at))?.name ?? 'air', position: at }),
+    canSeeBlock: () => false,
+    equip: async () => {},
+    dig: async block => {
+      cells.delete(String(block.position))
+      items = [{ name: 'oak_log', count: 1 }]
+    },
+    pathfinder: { bestHarvestTool: () => null, setGoal () {}, goto: async () => {} }
+  })
+  const world = new MineflayerWorld(bot, 'test')
+  const logs = world.visible().filter(block => block.block === 'log')
+  const result = await world.act({ action: 'mine', target: 'log' })
+  assert.deepEqual(
+    { logs, result },
+    {
+      logs: [{ x: 1, y: 64, z: 0, block: 'log' }],
+      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true }
+    }
+  )
+})
+
+test('the mine after a toward-move digs the block the move reached, though another in reach comes first', async () => {
+  // A has no path from the start, so the move walks next to B; from there A is in reach too.
+  const [a, b] = [new Vec3(6, 65, 0), new Vec3(5, 65, 1)]
+  const bot = forestBot(new Vec3(0.5, 64, 0.5), [a, b], [a])
+  const world = new MineflayerWorld(bot, 'test')
+  await world.act({ action: 'move', target: { toward: 'log' } })
+  const result = await world.act({ action: 'mine', target: 'log' })
+  assert.deepEqual(
+    { ok: result.ok, dug: bot.dug, paths: bot.paths },
+    { ok: true, dug: [b], paths: [[6, 0], [5, 1]] }
+  )
+})

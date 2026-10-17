@@ -97,11 +97,14 @@ Steps over Minecraft:
   first. Each corridor cell is a column searched within 16 blocks of the feet, nearest height first. A block counts
   only when it touches air; worldgen fills caves with `cave_air`, so buried stone and cave walls stay out. A look that
   finds nothing reads about 280,000 blocks in about 0.15 s.
-- Every observation lists the non-air blocks within 8 blocks that have a clear line from the bot's eyes, nearest first.
-- `mine`: `target` is a block name. It picks its block the way a toward-move does, so it digs the block a toward-move
-  went to, and digs it with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
-  waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the
-  server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
+- Every observation lists the non-air blocks within 8 blocks that touch air, nearest first. That is the rule `look`
+  uses, and it is what "visible" means for a toward-move and a mine too. There is no line-of-sight test: a ray to a
+  block's center misses a trunk under leaves one block away. The pathfinder decides what can be reached.
+- `mine`: `target` is a block name. It tries the block the last toward-move reached first, then picks the way a
+  toward-move does, and digs with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of
+  pickup range, it walks onto it (3 s) and waits 1 s more. `output` is `{block_removed, collected}`. `block_removed`
+  is read after those waits, so a dig the server refused shows as `false`. `collected` is the inventory delta. `ok`
+  equals `block_removed`.
 - `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
   foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
   the block there, and the message gives its position. `output` is the inventory delta, as for `craft`:
