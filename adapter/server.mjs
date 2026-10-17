@@ -38,7 +38,7 @@ export function serve (world, log = line => console.log(line)) {
     'POST /step': async step => {
       if (typeof step?.action !== 'string') return [400, { error: 'body must be {action, target, grid}' }]
       // Steps go on after success, so recovery can still act before the episode returns; only the budget stops them.
-      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: observation() }]
+      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], executed: false, observation: observation() }]
       actions += 1
       return [200, { ...await world.act(step), observation: observation() }]
     }
@@ -83,6 +83,7 @@ function line (path, body, payload) {
     message: payload.message ?? payload.error,
     output: payload.output ?? null,
     events: payload.events?.length ? payload.events : undefined,
+    executed: payload.executed,
     at: (payload.observation ?? payload).position
   })
 }
