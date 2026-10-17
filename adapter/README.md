@@ -70,8 +70,13 @@ Steps over Minecraft:
 - `move`: `target` is `north`, `south`, `east`, `west` (one block), or `{"toward": "log"}`, which paths until the
   nearest visible block of that type is horizontally within 1 block and within 4.5 blocks of reach. Paths never dig or
   place blocks, so moving leaves the inventory alone. A failed path stops the bot where it stands. Bounded at 20 s.
-- `look`: changes nothing. Every observation lists the non-air blocks within 8 blocks that have a clear line from the
-  bot's eyes, nearest first.
+- `look`: changes nothing. `output` maps each heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW` to the nearest `log`,
+  `stone`, `coal_ore`, or `crafting_table` as `{"block", "distance"}`, and leaves out headings that show none. It
+  searches like the grid's look, over the loaded chunks: a corridor 7 wide and 48 long, step by step, center lane
+  first. Each corridor cell is a column searched within 16 blocks of the feet, nearest height first. A block counts
+  only when it touches air; worldgen fills caves with `cave_air`, so buried stone and cave walls stay out. A look that
+  finds nothing reads about 280,000 blocks in about 0.15 s.
+- Every observation lists the non-air blocks within 8 blocks that have a clear line from the bot's eyes, nearest first.
 - `mine`: `target` is a block name. Walks within reach of the nearest visible one (20 s) and digs it with the fastest
   held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
   waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the

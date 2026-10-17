@@ -57,6 +57,23 @@ test('a step returns its result, events, and the next observation', async (t) =>
   })
 })
 
+test('look reports the nearest known block per heading and leaves empty headings out', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'look' })
+  assert.deepEqual(result, {
+    ok: true,
+    message: 'blocks along 4 headings',
+    output: {
+      E: { block: 'log', distance: 1 },
+      SE: { block: 'stone', distance: 3 },
+      S: { block: 'stone', distance: 3 },
+      SW: { block: 'stone', distance: 3 }
+    },
+    events: []
+  })
+})
+
 test('observe repeats the observation without counting an action', async (t) => {
   const call = await start(t)
   const { body: { message, ...observation } } = await call('POST', '/reset', task())
