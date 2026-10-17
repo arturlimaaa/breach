@@ -1,5 +1,8 @@
+import json
 import unittest
+from functools import partial
 
+import breach.induce
 from breach.baseline_b import immediate_repeat_rate
 from breach.certify import demote, replay
 from breach.changes import apply, benchmark, enumerate_class
@@ -118,6 +121,21 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(
             (result.reason, len(calls), len(probes), all(p in calls[1][2] for p in probes[:3]), [s.rule_id for s in vanilla]),
             ("unrecoverable craft:stick", 2, 6, True, ["mine:log", "craft:planks", "craft:stick"]),
+        )
+
+    def test_the_production_inducer_wiring_recovers_through_its_schema_gate(self):
+        replies = []
+
+        def complete(messages, **kwargs):
+            replies.append(kwargs["purpose"])
+            return json.dumps([{"action": "craft", "target": "stick", "delta": {"planks": -2, "stick": 2}, "tool": None, "near": None}])
+
+        log = TransitionLog()
+        induce = partial(breach.induce.induce, complete=complete)
+        result = run_episode(change_world("stick-count-2", STICKS), certified_store(), log, "hc", induce=induce)
+        self.assertEqual(
+            (result.reason, replies, [(t.action, t.rule_id, t.verdict) for t in log if t.test][:1]),
+            ("goal", ["induce"], [("probe", f"{DEMOTED_STICK}#1", "match")]),
         )
 
     def test_candidates_left_untested_at_the_goal_are_tested_by_the_next_task_without_the_inducer(self):
