@@ -3,11 +3,16 @@ from __future__ import annotations
 import random
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import product
+from typing import Any
 
 from .rules import TOOL_TIERS, Rule
 
 Position = tuple[int, int]
 DIRECTIONS: dict[str, Position] = {"east": (1, 0), "west": (-1, 0), "south": (0, 1), "north": (0, -1)}
+HEADINGS: dict[str, Position] = {
+    "N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1), "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1),
+}
 RADIUS = 8
 
 
@@ -85,7 +90,7 @@ class Observation:
 class StepResult:
     ok: bool
     message: str
-    output: dict[str, int] | None
+    output: dict[str, Any] | None  # probe: {item: count}; look: {heading: {"block": type, "distance": steps}}
     observation: Observation
     events: list[str] = field(default_factory=list)  # death, damage, despawn; the grid has no hazards
 
@@ -143,12 +148,12 @@ class GridWorld:
         if self.done:
             return self._result(False, "episode is over")
         self.actions += 1
-        handler = {"move": self._move, "mine": self._mine, "craft": self._craft, "probe": self._probe}.get(action.name)
+        handler = {"move": self._move, "mine": self._mine, "craft": self._craft, "probe": self._probe, "look": self._look}.get(action.name)
         if handler is None:
             return self._result(False, f"unknown action {action.name}")
         return handler(action)
 
-    def _result(self, ok: bool, message: str, output: dict[str, int] | None = None) -> StepResult:
+    def _result(self, ok: bool, message: str, output: dict[str, Any] | None = None) -> StepResult:
         return StepResult(ok, message, output, self.observe())
 
     def _move(self, action: Action) -> StepResult:
@@ -191,3 +196,17 @@ class GridWorld:
             if recipe.inputs == grid and not (recipe.station and self.inventory[recipe.station] < 1):
                 return self._result(True, f"output slot shows {recipe.output} {item}", {item: recipe.output})
         return self._result(True, "output slot is empty", {})
+
+    def _look(self, action: Action) -> StepResult:
+        """Nearest block per heading in a corridor 7 wide and 48 steps long; a heading with nothing in it is left out."""
+        x0, z0 = self.position
+        seen: dict[str, dict[str, Any]] = {}
+        for heading, (dx, dz) in HEADINGS.items():
+            # The width runs along x except east and west, so a diagonal corridor is sheared and has no holes.
+            wx, wz = (0, 1) if dz == 0 else (1, 0)
+            for k, j in product(range(1, 49), (0, -1, 1, -2, 2, -3, 3)):
+                block = self.blocks.get((x0 + k * dx + j * wx, z0 + k * dz + j * wz))
+                if block:
+                    seen[heading] = {"block": block, "distance": k}
+                    break
+        return self._result(True, f"blocks along {len(seen)} headings", seen)
