@@ -42,7 +42,7 @@ def step(world: GridWorld, action: Action) -> StepResult:
         return world.step(action)
     world.actions += 1
     if cell is None:
-        return StepResult(False, f"no {block} within {reach} blocks", None, world.observe())
+        return StepResult(False, f"no {block} within {reach} blocks", None, world.observe(), executed=False)
     world.position = min(((cell[0] + dx, cell[1] + dz) for dx, dz in DIRECTIONS.values()), key=away)
     return StepResult(True, f"moved toward {block}", None, world.observe())
 
@@ -83,7 +83,7 @@ def serve(make_world: Callable[[Task], GridWorld], on_step: Callable[[dict[str, 
             result = step(world, Action(body["action"], body.get("target"), body.get("grid")))
             return 200, {
                 "ok": result.ok, "message": result.message, "output": result.output, "events": result.events,
-                "observation": observation(result.observation),
+                "executed": result.executed, "observation": observation(result.observation),
             }
 
         def log_message(self, *args: Any) -> None:

@@ -105,14 +105,16 @@ class ReplayCertifyTests(unittest.TestCase):
     def test_a_pre_change_match_on_the_same_server_blocks_a_revision(self):
         self.assertEqual(revising(PRE_CHANGE, COUNTEREXAMPLE, PROBE, USE), Certification(REVISION, "contradicted at e1/2"))
 
-    def test_failed_steps_other_servers_and_other_grids_count_neither_way(self):
+    def test_failed_steps_refused_steps_other_servers_and_other_grids_count_neither_way(self):
         failed = stepped("e1", 4, "craft", STICK.rule_id, STICK.delta, {}, ok=False)
         elsewhere = stepped("e1", 1, "craft", STICK.rule_id, STICK.delta, STICK.delta, server="grid/vanilla")
         swapped = sibling(2, {"log": -2, "stick": 4})
         other_grid = stepped("e1", 7, "probe", swapped.rule_id, swapped.outputs, {})
+        # The adapter answers a probe of ingredients not held with ok and an empty slot, but never acted on it.
+        refused = replace(PROBE, step=9, observed={}, cls="tolerant", verdict="match")
         certified = replace(REVISION, status="certified", evidence=("e1/6", "e2/3"))
         self.assertEqual(
-            revising(elsewhere, failed, PROBE, other_grid, USE, siblings=[swapped]), Certification(certified, "certified"),
+            revising(elsewhere, failed, PROBE, other_grid, refused, USE, siblings=[swapped]), Certification(certified, "certified"),
         )
 
     def test_a_probe_logged_under_another_candidate_counts_for_every_rule_with_its_grid(self):

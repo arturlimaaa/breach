@@ -98,6 +98,7 @@ class StepResult:
     output: dict[str, Any] | None  # probe: {item: count}; look: {heading: {"block": type, "distance": steps}}
     observation: Observation
     events: list[str] = field(default_factory=list)  # death, damage, despawn; the grid has no hazards
+    executed: bool = True  # false when the world refused the action before acting on it, so the step is no evidence
 
 
 def layout(seed: int, min_log_distance: int = 0) -> dict[Position, str]:
@@ -153,17 +154,17 @@ class GridWorld:
 
     def step(self, action: Action) -> StepResult:
         if self.done:
-            return self._result(False, "episode is over")
+            return self._result(False, "episode is over", executed=False)
         self.actions += 1
         handler = {
             "move": self._move, "mine": self._mine, "craft": self._craft, "probe": self._probe, "look": self._look, "place": self._place,
         }.get(action.name)
         if handler is None:
-            return self._result(False, f"unknown action {action.name}")
+            return self._result(False, f"unknown action {action.name}", executed=False)
         return handler(action)
 
-    def _result(self, ok: bool, message: str, output: dict[str, Any] | None = None) -> StepResult:
-        return StepResult(ok, message, output, self.observe())
+    def _result(self, ok: bool, message: str, output: dict[str, Any] | None = None, executed: bool = True) -> StepResult:
+        return StepResult(ok, message, output, self.observe(), executed=executed)
 
     def _reaches(self, block: str) -> bool:
         return any(b == block and within(p, self.position) for p, b in self.blocks.items())
@@ -171,27 +172,31 @@ class GridWorld:
     def _move(self, action: Action) -> StepResult:
         offset = DIRECTIONS.get(action.target or "")
         if offset is None:
-            return self._result(False, "move needs a cardinal direction")
+            return self._result(False, "move needs a cardinal direction", executed=False)
         self.position = (self.position[0] + offset[0], self.position[1] + offset[1])
         return self._result(True, f"moved {action.target}")
 
     def _mine(self, action: Action) -> StepResult:
         block = self.blocks.get(self.position)
         if block is None:
-            return self._result(False, "nothing to mine here")
+            return self._result(False, "nothing to mine here", executed=False)
         needed = self.ruleset.tools.get(block)
         if TOOL_TIERS[needed] > held_tier(self.inventory):
-            return self._result(False, f"{block} needs a {needed}")
+            return self._result(False, f"{block} needs a {needed}", executed=False)
         del self.blocks[self.position]
         self.inventory.update(self.ruleset.drops.get(block, {}))
         return self._result(True, f"mined {block}")
 
     def _craft(self, action: Action) -> StepResult:
+        """Craft `target` by the world's recipe. Only the grid the agent sends has to be held to try; a world recipe that
+        needs more is the world's verdict on that grid, so it fails executed."""
+        if any(self.inventory[k] < v for k, v in (action.grid or {}).items()):
+            return self._result(False, "cannot place what is not held", executed=False)
         recipe = self.ruleset.recipes.get(action.target or "")
         if recipe is None:
             return self._result(False, f"no recipe for {action.target}")
         if recipe.station and not self._reaches(recipe.station):
-            return self._result(False, f"{action.target} needs a {recipe.station} within reach")
+            return self._result(False, f"{action.target} needs a {recipe.station} within reach", executed=False)
         missing = {k: v - self.inventory[k] for k, v in recipe.inputs.items() if self.inventory[k] < v}
         if missing:
             return self._result(False, f"missing {missing}")
@@ -203,21 +208,24 @@ class GridWorld:
         """Place `grid` in the crafting grid, read the output slot, take everything back."""
         grid = action.grid or {}
         if any(self.inventory[k] < v for k, v in grid.items()):
-            return self._result(False, "cannot place what is not held")
+            return self._result(False, "cannot place what is not held", executed=False)
         for item, recipe in self.ruleset.recipes.items():
-            if recipe.inputs == grid and (recipe.station is None or self._reaches(recipe.station)):
-                return self._result(True, f"output slot shows {recipe.output} {item}", {item: recipe.output})
+            if recipe.inputs != grid:
+                continue
+            if recipe.station and not self._reaches(recipe.station):
+                return self._result(False, f"no {recipe.station} within reach", executed=False)
+            return self._result(True, f"output slot shows {recipe.output} {item}", {item: recipe.output})
         return self._result(True, "output slot is empty", {})
 
     def _place(self, action: Action) -> StepResult:
         """Put a held block on the bot's cell, else on the first free neighbour."""
         block = action.target or ""
         if self.inventory[block] < 1:
-            return self._result(False, f"no {block} held")
+            return self._result(False, f"no {block} held", executed=False)
         x0, z0 = self.position
         cell = next((c for c in [(x0, z0), *((x0 + dx, z0 + dz) for dx, dz in DIRECTIONS.values())] if c not in self.blocks), None)
         if cell is None:
-            return self._result(False, f"no free cell at or next to {self.position}")
+            return self._result(False, f"no free cell at or next to {self.position}", executed=False)
         self.blocks[cell] = block
         self.inventory[block] -= 1
         return self._result(True, f"placed {block} at {cell}", {block: -1})
