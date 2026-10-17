@@ -12,8 +12,13 @@ from .world import VANILLA, Recipe, Ruleset, rules_from_ruleset
 
 SWAP_ORDER = ("log", "planks", "stick", "cobblestone", "coal")
 DROP_SWAPS = {"log": "planks", "stone": "stone", "coal_ore": "cobblestone"}
-# Every other generic name is its own vanilla id.
+# Every other generic name is its own vanilla id. Results and drops may be oak: the adapter counts any wood alike.
 VANILLA_IDS = {"log": "oak_log", "planks": "oak_planks"}
+# Ingredients any wood satisfies, since the bot holds whatever wood it mined.
+WOOD_TAGS = {"log": "minecraft:logs", "planks": "minecraft:planks"}
+# Vanilla keeps one planks recipe, one wood recipe, and one log loot table per overworld wood; a change to any of them
+# rewrites all six, so no wood falls back to its vanilla rule.
+WOODS = ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak")
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,12 @@ def apply(change: Change, ruleset: Ruleset) -> Ruleset:
     return replace(ruleset, recipes={**ruleset.recipes, change.recipe: recipe})
 
 
+def items(ruleset: Ruleset = VANILLA) -> list[str]:
+    """Every item a rule consumes or produces, in `ruleset` or after any change of its class: the public vocabulary."""
+    rulesets = [ruleset, *(apply(change, ruleset) for change in enumerate_class(ruleset))]
+    return sorted({item for each in rulesets for rule in rules_from_ruleset(each) for item in rule.delta})
+
+
 def _plan(goal: str, ruleset: Ruleset) -> list[Step] | None:
     # A constant travel cost keeps the chosen goal independent of any seed's layout.
     return plan(goal, 1, {}, rules_from_ruleset(ruleset, status="certified"), lambda block: 4)
@@ -125,11 +136,20 @@ def _id(name: str) -> str:
     return VANILLA_IDS.get(name, name)
 
 
-def _shapeless(inputs: dict[str, int], item: str, count: int) -> dict[str, Any]:
+def _ingredient(name: str, wood: str | None) -> dict[str, str]:
+    if name == "log" and wood:
+        return {"tag": f"minecraft:{wood}_logs"}
+    if name in WOOD_TAGS:
+        return {"tag": WOOD_TAGS[name]}
+    return {"item": f"minecraft:{_id(name)}"}
+
+
+def _shapeless(inputs: dict[str, int], result: str, count: int, wood: str | None = None) -> dict[str, Any]:
+    """A shapeless recipe for the vanilla id `result`; with `wood`, a log ingredient is that wood's logs only."""
     return {
         "type": "minecraft:crafting_shapeless",
-        "ingredients": [{"item": f"minecraft:{_id(i)}"} for i, n in inputs.items() for _ in range(n)],
-        "result": {"item": f"minecraft:{_id(item)}", "count": count},
+        "ingredients": [_ingredient(i, wood) for i, n in inputs.items() for _ in range(n)],
+        "result": {"item": f"minecraft:{result}", "count": count},
     }
 
 
@@ -139,25 +159,32 @@ def write_datapack(change: Change, directory: Path) -> None:
     files: dict[str, Any] = {"pack.mcmeta": {"pack": {"pack_format": 6, "description": f"breach change {change.id}"}}}
     recipes, note = {}, ""
     if change.kind == "drop":
-        files[f"data/minecraft/loot_tables/blocks/{_id(change.block)}.json"] = {
+        loot = {
             "type": "minecraft:block",
             "pools": [
                 {"rolls": 1, "entries": [{"type": "minecraft:item", "name": f"minecraft:{_id(item)}", "functions": [{"function": "minecraft:set_count", "count": n}]}]}
                 for item, n in changed.drops[change.block].items()
             ],
         }
+        for block in [f"{wood}_log" for wood in WOODS] if change.block == "log" else [_id(change.block)]:
+            files[f"data/minecraft/loot_tables/blocks/{block}.json"] = loot
     else:
         recipe = changed.recipes[change.recipe]
-        recipes[change.recipe] = _shapeless(recipe.inputs, change.recipe, recipe.output)
+        if change.recipe == "planks":
+            for wood in WOODS:
+                recipes[f"{wood}_planks"] = _shapeless(recipe.inputs, f"{wood}_planks", recipe.output, wood)
+        else:
+            recipes[_id(change.recipe)] = _shapeless(recipe.inputs, _id(change.recipe), recipe.output)
         if recipe.inputs == {"log": 4}:
-            recipes["oak_wood"] = _shapeless({"barrier": 4}, "oak_wood", 3)
+            for wood in WOODS:
+                recipes[f"{wood}_wood"] = _shapeless({"barrier": 4}, f"{wood}_wood", 3)
             note = (
-                "\nminecraft:oak_wood now takes 4 barriers. Vanilla oak_wood is 4 oak logs in a 2x2, the same grid as the"
-                " changed recipe, and 1.16.5 does not define which of two matching recipes wins."
+                "\nEach overworld <wood>_wood now takes 4 barriers. Vanilla <wood>_wood is 4 of that wood's logs in a 2x2,"
+                " a grid the changed recipe also matches, and 1.16.5 does not define which of two matching recipes wins."
             )
-    for item, data in recipes.items():
-        files[f"data/minecraft/recipes/{_id(item)}.json"] = data
-    overridden = ", ".join(f"minecraft:{_id(item)}" for item in recipes) or "none"
+    for recipe_id, data in recipes.items():
+        files[f"data/minecraft/recipes/{recipe_id}.json"] = data
+    overridden = ", ".join(f"minecraft:{recipe_id}" for recipe_id in recipes) or "none"
     files["data/minecraft/recipes/README.txt"] = f"Vanilla recipe ids overridden by {change.id}: {overridden}{note}"
     for name, content in files.items():
         _write(directory / name, content if isinstance(content, str) else json.dumps(content, indent=2))

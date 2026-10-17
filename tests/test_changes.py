@@ -90,31 +90,53 @@ class ChangeClassTests(unittest.TestCase):
             formats = [json.loads(p.read_text())["pack"]["pack_format"] for p in Path(tmp).glob("*/pack.mcmeta")]
             overrides = json_files(tmp)
         over_nine = [name for name, data in overrides.items() if len(data.get("ingredients", ())) > 9]
-        self.assertEqual((formats, len(overrides), over_nine), ([6] * 30, 31, []))
+        self.assertEqual((formats, len(overrides), over_nine), ([6] * 30, 61, []))
 
-    def test_datapacks_override_the_oak_recipe_and_loot_table(self):
+    def test_the_stick_count_pack_takes_any_wood_planks(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for i in ("planks-count-2", "log-drop-planks", "log-drop-nothing"):
-                write_datapack(change(i), Path(tmp) / i)
+            write_datapack(change("stick-count-2"), Path(tmp))
+            files = json_files(tmp)
+        self.assertEqual(
+            files,
+            {
+                "data/minecraft/recipes/stick.json": {
+                    "type": "minecraft:crafting_shapeless",
+                    "ingredients": [{"tag": "minecraft:planks"}] * 2,
+                    "result": {"item": "minecraft:stick", "count": 2},
+                },
+            },
+        )
+
+    def test_a_log_drop_pack_writes_one_loot_table_per_overworld_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_datapack(change("log-drop-planks"), Path(tmp))
             files = json_files(tmp)
         planks = {"type": "minecraft:item", "name": "minecraft:oak_planks", "functions": [{"function": "minecraft:set_count", "count": 1}]}
         self.assertEqual(
             files,
             {
-                "planks-count-2/data/minecraft/recipes/oak_planks.json": {
-                    "type": "minecraft:crafting_shapeless",
-                    "ingredients": [{"item": "minecraft:oak_log"}],
-                    "result": {"item": "minecraft:oak_planks", "count": 2},
-                },
-                "log-drop-planks/data/minecraft/loot_tables/blocks/oak_log.json": {
-                    "type": "minecraft:block",
-                    "pools": [{"rolls": 1, "entries": [planks]}],
-                },
-                "log-drop-nothing/data/minecraft/loot_tables/blocks/oak_log.json": {"type": "minecraft:block", "pools": []},
+                f"data/minecraft/loot_tables/blocks/{wood}_log.json": {"type": "minecraft:block", "pools": [{"rolls": 1, "entries": [planks]}]}
+                for wood in ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak")
             },
         )
 
-    def test_four_logs_in_a_square_also_disable_vanilla_oak_wood(self):
+    def test_a_planks_change_rewrites_every_overworld_planks_recipe_from_its_own_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_datapack(change("planks-count-2"), Path(tmp))
+            files = json_files(tmp)
+        self.assertEqual(
+            files,
+            {
+                f"data/minecraft/recipes/{wood}_planks.json": {
+                    "type": "minecraft:crafting_shapeless",
+                    "ingredients": [{"tag": f"minecraft:{wood}_logs"}],
+                    "result": {"item": f"minecraft:{wood}_planks", "count": 2},
+                }
+                for wood in ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak")
+            },
+        )
+
+    def test_four_logs_in_a_square_also_disable_every_vanilla_wood_recipe(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_datapack(change("crafting_table-swap-planks-log"), Path(tmp))
             files = json_files(tmp)
@@ -123,17 +145,19 @@ class ChangeClassTests(unittest.TestCase):
             {
                 "data/minecraft/recipes/crafting_table.json": {
                     "type": "minecraft:crafting_shapeless",
-                    "ingredients": [{"item": "minecraft:oak_log"}] * 4,
+                    "ingredients": [{"tag": "minecraft:logs"}] * 4,
                     "result": {"item": "minecraft:crafting_table", "count": 1},
                 },
-                "data/minecraft/recipes/oak_wood.json": {
-                    "type": "minecraft:crafting_shapeless",
-                    "ingredients": [{"item": "minecraft:barrier"}] * 4,
-                    "result": {"item": "minecraft:oak_wood", "count": 3},
+                **{
+                    f"data/minecraft/recipes/{wood}_wood.json": {
+                        "type": "minecraft:crafting_shapeless",
+                        "ingredients": [{"item": "minecraft:barrier"}] * 4,
+                        "result": {"item": f"minecraft:{wood}_wood", "count": 3},
+                    }
+                    for wood in ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak")
                 },
             },
         )
-
 
 if __name__ == "__main__":
     unittest.main()
