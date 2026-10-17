@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from dataclasses import replace
+from itertools import takewhile
 from pathlib import Path
 
 from breach.baseline_a import run_episode_a
@@ -14,7 +15,7 @@ from breach.http_world import HttpWorld, parse
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.proof import proof
-from breach.tasks import T1
+from breach.tasks import H2, T1
 from breach.world import VANILLA, Action, GridWorld, Task
 from tests.fake_adapter import serve
 from tests.test_baseline_a import T1_PLAN
@@ -41,7 +42,7 @@ def only(blocks, world=GridWorld):
 
 
 class Blind(GridWorld):
-    """Looks the way the Mineflayer adapter does: no headings, the observation is the whole answer."""
+    """Its look has no output, which is what a failed adapter look returns."""
 
     def _look(self, action):
         return self._result(True, "blocks in sight")
@@ -156,7 +157,7 @@ class HttpWorldTests(unittest.TestCase):
             ("no reachable log", [("move", "log", "tolerant", "mismatch")]),
         )
 
-    def test_a_look_that_shows_nothing_leads_to_a_bounded_spiral(self):
+    def test_a_look_with_no_output_leads_to_a_bounded_spiral(self):
         log = TransitionLog()
         result = run_episode(HttpWorld(self.adapter(only({}, Blind)), T1), certified_vanilla(), log, "t1")
         legs = [("east", 1), ("south", 1), ("west", 2), ("north", 2), ("east", 3), ("south", 3), ("west", 4), ("north", 4)]
@@ -165,12 +166,22 @@ class HttpWorldTests(unittest.TestCase):
             ("no reachable log", [("look", None), *(("move", d) for d, n in legs for _ in range(n))]),
         )
 
-    def test_a_look_that_shows_nothing_walks_the_spiral_until_a_log_is_in_view(self):
+    def test_a_look_with_no_output_walks_the_spiral_until_a_log_is_in_view(self):
         log = TransitionLog()
         result = run_episode(HttpWorld(self.adapter(only({(9, 0): "log"}, Blind)), PLANKS), certified_vanilla(), log, "p")
         self.assertEqual(
             (result.reason, [(t.action, t.target) for t in log]),
             ("goal", [("look", None), ("move", "east"), ("move", "log"), ("mine", "log"), ("craft", "planks")]),
+        )
+
+    def test_a_look_with_headings_explores_as_on_the_grid_until_the_toward_move(self):
+        grid_log, http_log = TransitionLog(), TransitionLog()
+        run_episode(GridWorld(H2, seed=1), certified_vanilla(), grid_log, "h2")
+        result = run_episode(HttpWorld(self.adapter(), H2), certified_vanilla(), http_log, "h2")
+        explored = hashless(takewhile(lambda t: t.target != "log", http_log))
+        self.assertEqual(
+            (result.reason, sum(t.action == "look" for t in explored) > 1, explored),
+            ("goal", True, hashless(grid_log)[:len(explored)]),
         )
 
     def test_a_budget_spent_bringing_a_log_into_view_issues_no_toward_move(self):
