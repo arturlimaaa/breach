@@ -1,13 +1,12 @@
 import json
 import unittest
 
-from breach.baseline_a import EpisodeResultA, run_episode_a
+from breach.baseline_a import EpisodeResultA, run_episode_a, vanilla_replanner
 from breach.baseline_b import immediate_repeat_rate
 from breach.changes import apply, benchmark
 from breach.log import TransitionLog
-from breach.planner import plan
 from breach.tasks import T1
-from breach.world import VANILLA, GridWorld, Task, rules_from_ruleset
+from breach.world import VANILLA, GridWorld, Task
 from tests.test_induce import scripted
 
 T1_PLAN = [
@@ -50,19 +49,6 @@ def benchmarked(change_id):
 def change_world(change_id, task):
     change, _ = benchmarked(change_id)
     return GridWorld(task, seed=1, ruleset=apply(change, VANILLA), server=f"grid/{change_id}")
-
-
-def vanilla_replanner(world):
-    """Fake Nemotron that knows only vanilla: every call answers the vanilla plan from the world's inventory."""
-    calls = []
-    rules = rules_from_ruleset(VANILLA, status="certified")
-
-    def complete(messages, **kwargs):
-        calls.append((messages, kwargs))
-        steps = plan(world.task.goal, world.task.count, world.observe().inventory, rules, lambda block: 1)
-        return json.dumps([f"craft {s.target} x{s.delta[s.target]}" if s.action == "craft" else f"mine {s.target}" for s in steps])
-
-    return complete, calls
 
 
 class BaselineATests(unittest.TestCase):
