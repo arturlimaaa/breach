@@ -56,6 +56,10 @@ npm start
 | `MC_WORLD` | `world` | World name in the `server` field, `mc/<host>:<port>/<world>`. Set it per change world so server-scoped rules stay apart. |
 | `VIEWER_PORT` | unset | When set, serves a third-person 3D view of the bot in the browser at `http://127.0.0.1:<port>`. It listens on all interfaces; prismarine-viewer has no host option. |
 
+Each `/reset` and `/step` prints one JSON line to stdout, so a run the core drives can be read from the adapter's
+output: `time`, `action`, `target`, `grid` (crafts and probes), `ok`, `message`, `output`, `events` (when any), and
+`at`, the bot's position afterwards.
+
 The adapter exits when the bot leaves the server. The viewer is prismarine-viewer 1.32.0: 1.33.0 loads the native
 `canvas` package at runtime without declaring it, so it fails to import. The viewer's camera follows the bot only
 once the bot first moves.
