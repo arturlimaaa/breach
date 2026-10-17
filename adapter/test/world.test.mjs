@@ -44,6 +44,40 @@ function miningBot (feet, log, drop, reachable = true) {
   return bot
 }
 
+// Logs in sight at `logs`, nearest first, and the bot at `feet`. A path to a log in `blocked` fails as the pathfinder
+// does on a partial path; any other path ends in the column east of its log. Digging a log collects it.
+function forestBot (feet, logs, blocked = []) {
+  const standing = new Set(logs.map(String))
+  let items = []
+  const bot = Object.assign(new EventEmitter(), {
+    paths: [],
+    dug: [],
+    entity: { position: feet },
+    entities: {},
+    inventory: { items: () => items },
+    findBlocks: () => logs.filter(log => standing.has(String(log))),
+    blockAt: at => ({ name: standing.has(String(at)) ? 'oak_log' : 'air', position: at }),
+    canSeeBlock: () => true,
+    equip: async () => {},
+    dig: async block => {
+      standing.delete(String(block.position))
+      bot.dug.push(block.position)
+      items = [{ name: 'oak_log', count: bot.dug.length }]
+    },
+    pathfinder: {
+      bestHarvestTool: () => null,
+      setGoal () {},
+      async goto (goal) {
+        const [{ x, z }] = goal.goals
+        bot.paths.push([x, z])
+        if (blocked.some(log => log.x === x && log.z === z)) throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' })
+        bot.entity.position = new Vec3(x + 1.5, feet.y, z + 0.5)
+      }
+    }
+  })
+  return bot
+}
+
 // Ground at y 63 and air above it, except the cells listed as "x,y,z": boundingBox. Holds one crafting table.
 function placingBot (position, cells) {
   const placed = []
@@ -108,7 +142,7 @@ test('mine walks onto a drop that rolled out of pickup range', async () => {
     { result, goals: bot.goals },
     {
       result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true },
-      goals: ['GoalCompositeAll', 'GoalBlock']
+      goals: ['GoalBlock']
     }
   )
 })
@@ -156,4 +190,47 @@ test('a mine whose walk to the block fails is refused without executing', async 
   const bot = miningBot(new Vec3(0.5, 64, 0.5), new Vec3(5, 64, 0), new Vec3(5.5, 64, 0.5))
   const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'log' })
   assert.deepEqual(result, { ok: false, message: 'mine: no path to log', output: null, events: [], executed: false })
+})
+
+test('a toward-move diagonally next to the nearest block, one below it, is ok without a path', async () => {
+  const log = new Vec3(60, 71, -109)
+  const bot = forestBot(new Vec3(59.5, 70, -109.5), [log], [log])
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { toward: 'log' } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: true, message: 'moved toward log', output: null, events: [], executed: true }, paths: [] }
+  )
+})
+
+test('a toward-move whose nearest block has no path walks to the next nearest', async () => {
+  const [a, b, c] = [new Vec3(5, 65, 0), new Vec3(0, 65, 6), new Vec3(-7, 65, 0)]
+  const bot = forestBot(new Vec3(0.5, 64, 0.5), [a, b, c], [a])
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { toward: 'log' } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: true, message: 'moved toward log', output: null, events: [], executed: true }, paths: [[5, 0], [0, 6]] }
+  )
+})
+
+test('a toward-move answers no path after the three nearest blocks have none', async () => {
+  const logs = [new Vec3(5, 65, 0), new Vec3(0, 65, 6), new Vec3(-7, 65, 0), new Vec3(0, 65, -8)]
+  const bot = forestBot(new Vec3(0.5, 64, 0.5), logs, logs)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { toward: 'log' } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    {
+      result: { ok: false, message: 'move: no path toward log', output: null, events: [], executed: false },
+      paths: [[5, 0], [0, 6], [-7, 0]]
+    }
+  )
+})
+
+test('mine digs the nearest block that has a path, the one a toward-move reaches', async () => {
+  const [a, b] = [new Vec3(5, 65, 0), new Vec3(0, 65, 6)]
+  const bot = forestBot(new Vec3(0.5, 64, 0.5), [a, b], [a])
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'log' })
+  assert.deepEqual(
+    { result, dug: bot.dug },
+    { result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true }, dug: [b] }
+  )
 })

@@ -14,6 +14,7 @@ const PICKUP_MS = 1_000 // a dug block's drop lands and passes its pickup delay 
 const RESET_MS = 5_000
 const OPEN_MS = 5_000
 const RADIUS = 8
+const APPROACHES = 3 // visible blocks of a type a move or mine tries before it answers no path
 const DIRECTIONS = new Map([['north', [0, -1]], ['south', [0, 1]], ['east', [1, 0]], ['west', [-1, 0]]])
 const AIR = new Set(['air', 'cave_air', 'void_air'])
 const GIVE = new Map([['log', 'oak_log'], ['planks', 'oak_planks']])
@@ -121,9 +122,7 @@ export class MineflayerWorld {
 
   async #move (target) {
     if (target?.toward) {
-      const block = this.#nearest(target.toward)
-      if (!block) throw new Error(`no ${target.toward} in sight`)
-      await this.#goto(reach(block.position), `toward ${target.toward}`)
+      await this.#approach(target.toward, `toward ${target.toward}`)
       this.#executed = true
       return { ok: true, message: `moved toward ${target.toward}` }
     }
@@ -137,9 +136,7 @@ export class MineflayerWorld {
 
   async #mine (target) {
     const { bot } = this
-    const block = this.#nearest(target)
-    if (!block) throw new Error(`no ${target} in sight`)
-    await this.#goto(reach(block.position), `to ${target}`)
+    const block = await this.#approach(target, `to ${target}`)
     const tool = bot.pathfinder.bestHarvestTool(block)
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
@@ -270,9 +267,32 @@ export class MineflayerWorld {
       // goto rejects on a partial path while the pathfinder keeps walking it; a step ends where the bot stands.
       bot.pathfinder.setGoal(null)
     }
-    // goto also resolves when no path exists. The pathfinder counts the goal as reached one block up too.
-    const at = bot.entity.position.floored()
-    if (!goal.isEnd(at) && !goal.isEnd(at.offset(0, 1, 0))) throw new Error(`no path ${label}`)
+    // goto also resolves when no path exists.
+    if (!this.#reached(goal)) throw new Error(`no path ${label}`)
+  }
+
+  // The pathfinder counts a goal as reached one block up too.
+  #reached (goal) {
+    const at = this.bot.entity.position.floored()
+    return goal.isEnd(at) || goal.isEnd(at.offset(0, 1, 0))
+  }
+
+  // Of the nearest visible blocks of a type, the first already within reach, else the first a path reaches. Move and
+  // mine share it, so a mine digs the block a toward-move went to.
+  async #approach (name, label) {
+    const blocks = this.#inSight().filter(block => normalize(block.name) === name).slice(0, APPROACHES)
+    if (!blocks.length) throw new Error(`no ${name} in sight`)
+    const near = blocks.find(block => this.#reached(reach(block.position)))
+    if (near) return near
+    for (const block of blocks) {
+      try {
+        await this.#goto(reach(block.position), label)
+        return block
+      } catch {
+        // The next one may have a path.
+      }
+    }
+    throw new Error(`no path ${label}`)
   }
 
   #look () {
@@ -290,10 +310,6 @@ export class MineflayerWorld {
       .filter(block => block && bot.canSeeBlock(block))
   }
 
-  #nearest (name) {
-    return this.#inSight().find(block => normalize(block.name) === name) ?? null
-  }
-
   #cancel () {
     const { bot } = this
     bot.pathfinder.setGoal(null)
@@ -302,11 +318,12 @@ export class MineflayerWorld {
   }
 }
 
-// Horizontally next to the block and within 4.5 blocks of it, measured from the cell under the block to the feet,
-// which tracks the eyes to within half a block. pathfinder's GoalLookAtBlock measures reach from 1.6 blocks below the
-// feet instead, so it refuses logs three or more blocks up a trunk.
+// In the block's column or one of the eight around it, and within 4.5 blocks of it, measured from the cell under the
+// block to the feet, which tracks the eyes to within half a block. A diagonal neighbor digs and picks up the drop as
+// well as a side one. pathfinder's GoalLookAtBlock measures reach from 1.6 blocks below the feet instead, so it
+// refuses logs three or more blocks up a trunk.
 const reach = position => new goals.GoalCompositeAll([
-  new goals.GoalNearXZ(position.x, position.z, 1),
+  new goals.GoalNearXZ(position.x, position.z, 1.5),
   new goals.GoalNear(position.x, position.y - 1, position.z, 4.5)
 ])
 
