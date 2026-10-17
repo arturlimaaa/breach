@@ -8,7 +8,8 @@ import { clear, fill, normalize, slotsFor } from './craft.mjs'
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
 const PATH_MS = 20_000
-const INVENTORY_MS = 3_000 // how long mine and place wait for their inventory change to arrive
+const INVENTORY_MS = 3_000 // how long place waits for its inventory change, and mine walks to a drop
+const PICKUP_MS = 1_000 // a dug block's drop lands and passes its pickup delay within this
 const RESET_MS = 5_000
 const OPEN_MS = 5_000
 const RADIUS = 8
@@ -115,7 +116,7 @@ export class MineflayerWorld {
     if (target?.toward) {
       const block = this.#nearest(target.toward)
       if (!block) throw new Error(`no ${target.toward} in sight`)
-      await this.#goto(reach(this.bot, block.position), `toward ${target.toward}`)
+      await this.#goto(reach(block.position), `toward ${target.toward}`)
       return { ok: true, message: `moved toward ${target.toward}` }
     }
     const offset = DIRECTIONS.get(target)
@@ -129,12 +130,12 @@ export class MineflayerWorld {
     const { bot } = this
     const block = this.#nearest(target)
     if (!block) throw new Error(`no ${target} in sight`)
-    await this.#goto(reach(bot, block.position), `to ${target}`)
+    await this.#goto(reach(block.position), `to ${target}`)
     const tool = bot.pathfinder.bestHarvestTool(block)
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
     await bot.dig(block)
-    await settle(() => !isDeepStrictEqual(this.inventory(), before), INVENTORY_MS)
+    await this.#collect(block, before)
     // dig() clears the block locally at once; a dig the server refused comes back as a block update during the wait.
     const now = bot.blockAt(block.position)
     const removed = now !== null && normalize(now.name) !== target
@@ -143,6 +144,22 @@ export class MineflayerWorld {
       message: removed ? `mined ${target}` : `${target} is still there`,
       output: { block_removed: removed, collected: diff(before, this.inventory()) }
     }
+  }
+
+  // A drop that rolls more than about 1.4 blocks from the bot is not picked up where it stands, so walk onto it.
+  async #collect (block, before) {
+    const { bot } = this
+    const changed = () => !isDeepStrictEqual(this.inventory(), before)
+    if (await settle(changed, PICKUP_MS)) return
+    const center = block.position.offset(0.5, 0.5, 0.5)
+    const off = entity => Math.hypot(entity.position.x - center.x, entity.position.z - center.z)
+    const [drop] = Object.values(bot.entities)
+      .filter(entity => entity.name === 'item' && entity.position.y <= center.y && off(entity) <= 2)
+      .sort((a, b) => off(a) - off(b))
+    if (!drop) return
+    const { x, y, z } = drop.position.floored()
+    await this.#goto(new goals.GoalBlock(x, y, z), 'to the drop', INVENTORY_MS).catch(() => {})
+    await settle(changed, PICKUP_MS)
   }
 
   async #place (target) {
@@ -229,13 +246,18 @@ export class MineflayerWorld {
     const { bot } = this
     const table = bot.findBlock({ matching: block => block?.name === 'crafting_table', maxDistance: 16 })
     if (!table) throw new Error('no crafting table within 16 blocks')
-    if (bot.entity.position.distanceTo(table.position) > 4) await this.#goto(reach(bot, table.position), 'to crafting_table')
+    if (bot.entity.position.distanceTo(table.position) > 4) await this.#goto(reach(table.position), 'to crafting_table')
     return within(bot.openBlock(table), OPEN_MS, 'opening the crafting table')
   }
 
-  async #goto (goal, label) {
+  async #goto (goal, label, ms = PATH_MS) {
     const { bot } = this
-    await within(bot.pathfinder.goto(goal), PATH_MS, `path ${label}`, () => bot.pathfinder.setGoal(null))
+    try {
+      await within(bot.pathfinder.goto(goal), ms, `path ${label}`, () => bot.pathfinder.setGoal(null))
+    } finally {
+      // goto rejects on a partial path while the pathfinder keeps walking it; a step ends where the bot stands.
+      bot.pathfinder.setGoal(null)
+    }
     // goto also resolves when no path exists. The pathfinder counts the goal as reached one block up too.
     const at = bot.entity.position.floored()
     if (!goal.isEnd(at) && !goal.isEnd(at.offset(0, 1, 0))) throw new Error(`no path ${label}`)
@@ -261,10 +283,12 @@ export class MineflayerWorld {
   }
 }
 
-// Horizontally next to the block with a clear line to one of its faces, so its drop lands within pickup range.
-const reach = (bot, position) => new goals.GoalCompositeAll([
+// Horizontally next to the block and within 4.5 blocks of it, measured from the cell under the block to the feet,
+// which tracks the eyes to within half a block. pathfinder's GoalLookAtBlock measures reach from 1.6 blocks below the
+// feet instead, so it refuses logs three or more blocks up a trunk.
+const reach = position => new goals.GoalCompositeAll([
   new goals.GoalNearXZ(position.x, position.z, 1),
-  new goals.GoalLookAtBlock(position, bot.world)
+  new goals.GoalNear(position.x, position.y - 1, position.z, 4.5)
 ])
 
 async function settle (check, ms) {
