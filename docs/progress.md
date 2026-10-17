@@ -32,6 +32,8 @@ and the orchestrator read the output, then the branch is merged into
 | M7 watch page (viewer frame + status panel + live step log) | `al/m7-site` | merged fd75715, 12 site checks | `site/watch.html?run=<run>&episode=<id>`; fixture preview with `?run=../site/fixtures` |
 | M4 live travel semantics (`paths` capability, toward-moves, action fields for D, B, and A; spiral bounded only after a null look) | `al/m4-live-travel` | merged e77ad31, 042ea0c, e25cbd2; 132 tests | D over the fake adapter: T1 in 12 actions with one toward-move per mine; H2 over the fake 10 of 10 seeds; 52 grid logs byte-identical; T3 over the fake fails 4 of 10 on remembered out-of-view stone (station-placement lane) |
 | M3 proof: immediate repeat = next non-move, non-look step reusing the refuted rule_id | `al/m3-proof` | merged 37982ba, 131 tests | a revision id or test step never counts; A 60% and B 20% unchanged |
+| M4 adapter reopened: per-step stdout log, `reset-world.sh` with a pristine world copy, then rerun the core's live T1 | `al/m4-adapter` | running | the mine after a successful toward-move is explained by the adapter's message |
+| M4 second core-driven live T1 (`runs/live-t1-2`, with the real look) | integrate | ran: 4 actions, look, move north, toward-move ok, then mine ok=false, "contradiction at mine:log"; by hand from the bot's spot the adapter says "no log in sight" (the bot had wandered onto depleted ground) | needs the per-step log and a world reset |
 | M4 first core-driven live T1 (`runs/live-t1-1`) | integrate | ran: 16 actions, mined a log, crafted planks and a table, then a mine returned ok=false with an empty delta under server lag and was scored "contradiction at mine:log" | finding: a mine whose block was not removed is an execution failure, not evidence against the rule; score it tolerant (adapter output `block_removed`), exact only once the block is gone. Goes to the station-placement lane with the executor's `place` step. Exploration used the blind spiral because the adapter's look is not in yet. |
 | M3 proof: recovery tests are not repeats; probes do not count as inventory | `al/m3-proof` | merged 55774a0, 120 tests | D's drop-change test mine scores 0 repeats |
 | M2 recovery loop + system C + status.json | `al/m2-recover` | reported 7b84f3e: all 20 changes recover on seed 1, 0 inducer calls in HS, revisions certified after HS; merge blocked by conflicts with the look lane, lane resolving; C and status.json pending | scripted-inducer tests; per-change table |
@@ -60,6 +62,12 @@ session needs `-p 0` for `stuff` to reach the console.
 Tooling: the Playwright MCP browser is shared between every agent in the
 session and can only write under /Users/artur/schema-voyager; agents take
 screenshots with a headless Chrome and a throwaway profile in their scratchpad.
+
+Nemotron: the Crusoe key in ~/.config/breach/env (mode 600, outside every
+repo) answers HTTP 200 for `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` and, as
+of 2026-10-17 15:16, HTTP 429 "max_requests_limit (orchestrator)" for the
+Super 120B model; the env file points at Nano 30B until Super answers. No
+Ollama fallback is used.
 
 Client: Prism Launcher 11.1.1 is installed with two 1.16.5 instances
 (`breach-me` for the operator, `breach-agent` for the spectator or second
