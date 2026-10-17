@@ -282,8 +282,8 @@
       "stick": 2
     },
     "evidence": [
-      "hr-stick-count-2-s1/12",
-      "hr-stick-count-2-s1/13"
+      "stick-count-2-hr-s1/12",
+      "stick-count-2-hr-s1/13"
     ],
     "near": null,
     "revision_of": "craft:stick",

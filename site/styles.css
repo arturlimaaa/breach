@@ -37,8 +37,8 @@ th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: rig
 th { font-size: 12px; font-weight: 600; color: var(--dim); vertical-align: bottom; }
 td { white-space: nowrap; font-variant-numeric: tabular-nums; }
 th:nth-child(-n+2), td:nth-child(-n+2) { text-align: left; }
-tr.worst td { background: #2a1719; }
-tr.worst td:first-child::before { content: "worst case "; color: var(--bad); font-family: system-ui, sans-serif; }
+tr.worst td, tr.worst-case td { background: #2a1719; }
+tr.worst-case td:nth-child(2)::before { content: "worst case "; color: var(--bad); font-family: system-ui, sans-serif; }
 tr.aggregate td { border-top: 2px solid var(--line); font-weight: 700; }
 
 .rule { color: var(--tone, var(--fg)); }

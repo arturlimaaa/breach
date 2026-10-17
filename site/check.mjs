@@ -45,16 +45,34 @@ test('every fixture parses', async () => {
   ]);
 });
 
-test('the results table puts the worst case first, one row per episode, and the aggregate last', async () => {
-  const proof = await fixture('proof.json');
-  const { results } = await render('index.html', '../site/fixtures');
-  const rows = [...results.innerHTML.matchAll(/<tr class="([^"]*)"><td>([^<]*)<\/td>/g)].map(m => [m[1], m[2]]);
-  const worst = proof.worst_case.episode;
-  assert.deepEqual(rows, [
-    ['worst', worst],
-    ...proof.episodes.filter(e => e.id !== worst).map(e => ['', e.id]),
-    ['aggregate', 'aggregate'],
+const tableRows = html => [...html.matchAll(/<tr class="([^"]*)">(.*?)<\/tr>/g)]
+  .map(([, cls, cells]) => [cls, ...[...cells.matchAll(/<td>([^<]*)<\/td>/g)].map(m => m[1])]);
+const resultTables = async () => (await render('index.html', '../site/fixtures')).results.innerHTML.split('<h3>Episodes').map(tableRows);
+
+test('the headline table leads with each worst row, then the means, then each aggregate', async () => {
+  const [headline] = await resultTables();
+  assert.deepEqual(headline, [
+    ['worst', 'B', 'worst', '5', '0%', '73', '5', '54', '100%', '–', 'never', '0', '0'],
+    ['worst', 'D', 'worst', '10', '100%', '60', '5', '0', '0%', '11', '21', '2', '5130'],
+    ['', 'B', 'HC', '5', '40%', '64', '5', '29.8', '20%', '–', 'never', '0', '0'],
+    ['', 'D', 'HC', '5', '100%', '37.2', '5', '0', '0%', '11', '21', '1.2', '2863.2'],
+    ['', 'D', 'HS', '5', '100%', '28.8', '0', '–', '–', '–', '–', '0', '0'],
+    ['aggregate', 'B', 'all', '5', '40%', '64', '5', '29.8', '20%', '–', 'never', '0', '0'],
+    ['aggregate', 'D', 'all', '10', '100%', '33', '5', '0', '0%', '11', '21', '0.6', '1431.6'],
   ]);
+});
+
+test('the episode table lists each system\'s worst case first, then every other episode once', async () => {
+  const proof = await fixture('proof.json');
+  const [, rows] = await resultTables();
+  assert.deepEqual(
+    { first: rows.slice(0, 2).map(r => r.slice(0, 3)), marked: rows.slice(2).filter(r => r[0]).length, all: rows.map(r => `${r[1]}/${r[2]}`).sort() },
+    {
+      first: [['worst-case', 'B', 'crafting_table-swap-planks-log-hc-s1'], ['worst-case', 'D', 'stone_pickaxe-swap-cobblestone-log-hc-s1']],
+      marked: 0,
+      all: proof.episodes.map(e => `${e.system}/${e.id}`).sort(),
+    },
+  );
 });
 
 test('a demoted or recertified rule shows its predecessor before it', async () => {

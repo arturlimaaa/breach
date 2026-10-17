@@ -1,5 +1,5 @@
 {
-  "episode": "hr-stick-count-2-s1",
+  "episode": "stick-count-2-hr-s1",
   "server": "grid/stick-count-2",
   "goal": "stone_pickaxe",
   "step": 12,
@@ -22,6 +22,6 @@
     {"rule_id": "craft:stone_pickaxe", "action": "craft", "target": "stone_pickaxe", "status": "aborted"}
   ],
   "last": {"action": "craft", "target": "stick", "rule_id": "craft:stick", "predicted": {"planks": -2, "stick": 4}, "observed": {"planks": -2, "stick": 2}, "verdict": "mismatch"},
-  "rule": {"rule_id": "craft:stick@grid/stick-count-2", "status": "demoted", "evidence": 6, "note": "contradicted at hr-stick-count-2-s1/12"},
+  "rule": {"rule_id": "craft:stick@grid/stick-count-2", "status": "demoted", "evidence": 6, "note": "contradicted at stick-count-2-hr-s1/12"},
   "model": {"calls": 0, "last_latency_ms": null}
 }
