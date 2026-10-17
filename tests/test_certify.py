@@ -84,12 +84,17 @@ PROBE = stepped("e1", 6, "probe", REVISION.rule_id, REVISION.outputs, REVISION.o
 USE = stepped("e2", 3, "craft", REVISION.rule_id, REVISION.delta, REVISION.delta)
 
 
-def revising(*transitions):
+def revising(*transitions, siblings=()):
     store, log = RuleStore(), TransitionLog()
-    store.add(REVISION)
+    for rule in (REVISION, *siblings):
+        store.add(rule)
     for transition in transitions:
         log.append(transition)
     return certify(store, log, REVISION.rule_id)
+
+
+def sibling(n, delta):
+    return replace(REVISION, rule_id=f"craft:stick@grid/stick-count-2#{n}", delta=delta, status="demoted")
 
 
 class ReplayCertifyTests(unittest.TestCase):
@@ -103,9 +108,18 @@ class ReplayCertifyTests(unittest.TestCase):
     def test_failed_steps_other_servers_and_other_grids_count_neither_way(self):
         failed = stepped("e1", 4, "craft", STICK.rule_id, STICK.delta, {}, ok=False)
         elsewhere = stepped("e1", 1, "craft", STICK.rule_id, STICK.delta, STICK.delta, server="grid/vanilla")
-        other_grid = stepped("e1", 7, "probe", "craft:stick@grid/stick-count-2#2", {"stick": 4}, {})
+        swapped = sibling(2, {"log": -2, "stick": 4})
+        other_grid = stepped("e1", 7, "probe", swapped.rule_id, swapped.outputs, {})
         certified = replace(REVISION, status="certified", evidence=("e1/6", "e2/3"))
-        self.assertEqual(revising(elsewhere, failed, PROBE, other_grid, USE), Certification(certified, "certified"))
+        self.assertEqual(
+            revising(elsewhere, failed, PROBE, other_grid, USE, siblings=[swapped]), Certification(certified, "certified"),
+        )
+
+    def test_a_probe_logged_under_another_candidate_counts_for_every_rule_with_its_grid(self):
+        three = sibling(3, {"planks": -2, "stick": 3})
+        probed = stepped("e1", 8, "probe", three.rule_id, three.outputs, REVISION.outputs)
+        certified = replace(REVISION, status="certified", evidence=("e1/8", "e2/3"))
+        self.assertEqual(revising(probed, USE, siblings=[three]), Certification(certified, "certified"))
 
 
 class ReplayTests(unittest.TestCase):

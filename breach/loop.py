@@ -7,7 +7,8 @@ from itertools import count, cycle, islice, repeat
 from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
-from .recover import Induce, recover
+from .recover import Induce, adopt, recover
+from .rules import Rule
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
@@ -34,7 +35,12 @@ class Executor:
         self.known: dict[Position, str] = {}
         self.steps = 0
         self.rounds: Counter[tuple[str, str]] = Counter()
-        self.unknown: list[str] = []
+        self.unrecovered: list[str] = []
+
+    def record(self, rule: Rule) -> Rule:
+        """This server's record for the rule's key: a candidate revises its record, and the record revises the global rule."""
+        parent = self.store.rules.get(rule.revision_of or "")
+        return parent if parent is not None and parent.scope == rule.scope else rule
 
     def observe(self):
         obs = self.world.observe()
@@ -117,11 +123,11 @@ class Executor:
             if steps is None:
                 steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance)
             if steps is None:
-                return EpisodeResult(False, self.world.actions, f"unrecoverable {self.unknown[-1]}" if self.unknown else "no certified plan")
+                return EpisodeResult(self.world.success, self.world.actions, self.unrecovered[-1] if self.unrecovered else "no certified plan")
             hit = self.execute(steps)
             reason = self.refuted(hit) if isinstance(hit, Transition) else hit
             if reason is not None:
-                return EpisodeResult(False, self.world.actions, reason)
+                return EpisodeResult(self.world.success, self.world.actions, reason)
         return EpisodeResult(self.world.success, self.world.actions, "goal" if self.world.success else "budget")
 
     def execute(self, steps: list[Step]) -> Transition | str | None:
@@ -141,20 +147,32 @@ class Executor:
             # The event may have moved the inventory off the plan; finishing it would blame the next rule.
             if transition.verdict == "quarantined":
                 return None
-            # A certified rule plans as an ordinary step, so the rest of this plan is stale.
-            if step.test and transition.verdict == "match" and certify(self.store, self.log, step.rule_id).reason == "certified":
+            if step.test and transition.verdict == "match" and self.confirmed(step.rule_id):
                 return None
         return None
 
+    def confirmed(self, rule_id: str) -> bool:
+        """A test step matched: a candidate becomes its record, then the record certifies if the log allows. True when the plan is stale."""
+        rule = self.store.rules[rule_id]
+        record = self.record(rule)
+        if record is not rule:
+            adopt(self.store, rule)
+            certify(self.store, self.log, record.rule_id)
+            return True
+        # A certified rule plans as an ordinary step.
+        return certify(self.store, self.log, rule_id).reason == "certified"
+
     def refuted(self, transition: Transition) -> str | None:
-        """Demote the refuted rule on this server, then recover it. Without an inducer a refuted certified rule ends the episode."""
-        rule = demote(self.store, transition.rule_id, self.world.server)
+        """Demote the refuted rule on this server, then recover its record. Without an inducer a refuted certified rule ends the episode."""
+        demoted = demote(self.store, transition.rule_id, self.world.server)
         if self.induce is None:
             return None if transition.test else f"contradiction at {transition.rule_id}"
+        record = self.record(demoted)
         # Candidates a round left untested when the budget ran out get tested by planning before the model is asked again.
-        if any(r.key == rule.key and r.status == "hypothesis" for r in self.store.usable(self.world.server, hypotheses=True)):
+        if any(r.key == record.key and r.status == "hypothesis" for r in self.store.usable(self.world.server, hypotheses=True)):
             return None
-        return recover(self, rule, transition)
+        # Recovery runs even when the refuting step met the goal, so the next task on this server finds a tested revision.
+        return recover(self, record, transition)
 
 
 def _spiral_legs():

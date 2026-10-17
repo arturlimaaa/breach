@@ -1,4 +1,5 @@
-"""Bounded recovery of a refuted rule: induce revisions, test the cheapest first, keep the first that passes."""
+"""Bounded recovery of a refuted rule: induce revisions, judge each from the log or else by the cheapest test, and
+move the first that passes into the server's record of the rule, the copy `certify.demote` made."""
 
 from __future__ import annotations
 
@@ -7,11 +8,12 @@ from dataclasses import replace
 from itertools import count
 from typing import TYPE_CHECKING
 
-from .certify import certify, demote
+from .certify import certify, demote, replayed
 from .log import Transition
 from .planner import Step, plan
 from .rules import Rule
 from .select import order_tests
+from .store import RuleStore
 from .world import Action
 
 if TYPE_CHECKING:
@@ -22,39 +24,67 @@ K = 3
 ROUNDS = 2
 
 
-def recover(ex: Executor, rule: Rule, counterexample: Transition) -> str | None:
-    """Rounds of at most K candidates for the demoted `rule`, at most ROUNDS per key and episode.
+def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | None:
+    """Rounds of at most K candidates for the demoted server `record`, at most ROUNDS per key and episode.
 
-    A string ends the episode. None lets the executor replan: with the revision as a hypothesis, with the
-    untested candidates of a round the budget cut short, or with the rule unknown after the last round.
+    A string ends the episode. None lets the executor replan: with the revised record as a hypothesis, with the
+    untested candidates of a round the budget cut short, or with the rule unrecovered after the last round.
     """
-    server = ex.world.server
-    while ex.rounds[rule.key] < ROUNDS:
-        ex.rounds[rule.key] += 1
-        fresh = (f"{rule.rule_id}#{n}" for n in count(1) if f"{rule.rule_id}#{n}" not in ex.store.rules)
+    server, error = ex.world.server, None
+    while ex.rounds[record.key] < ROUNDS:
+        ex.rounds[record.key] += 1
+        try:
+            proposed = ex.induce(record, counterexample, [t for t in ex.log if t.episode == ex.episode])
+        except Exception as exc:  # a transport or reply failure; llm.complete has already logged the call
+            error = f"inducer error: {exc}"
+            continue
+        fresh = (f"{record.rule_id}#{n}" for n in count(1) if f"{record.rule_id}#{n}" not in ex.store.rules)
         # The bookkeeping is ours whatever the inducer returns: a global candidate would plan on every server.
-        candidates = [
-            replace(c, rule_id=next(fresh), status="hypothesis", scope=server, revision_of=rule.rule_id)
-            for c in ex.induce(rule, counterexample, [t for t in ex.log if t.episode == ex.episode])[:K]
-        ]
+        candidates = [replace(c, rule_id=next(fresh), status="hypothesis", scope=server, revision_of=record.rule_id) for c in proposed[:K]]
         for candidate in candidates:
             ex.store.add(candidate)
         for candidate in order_tests(candidates, ex.observe().inventory):
-            t = _test(ex, candidate)
-            if isinstance(t, str):
-                return t
-            if t is None and ex.world.done:
-                return None
-            if t is not None and t.ok and t.verdict == "match":
-                certify(ex.store, ex.log, candidate.rule_id)
-                for other in candidates:
-                    if other.rule_id != candidate.rule_id:
-                        demote(ex.store, other.rule_id, server)
+            passed = _judged(ex, candidate, counterexample)
+            if passed is None:
+                t = _test(ex, candidate)
+                if isinstance(t, str):
+                    return t
+                if t is None and ex.world.done:
+                    return None
+                passed = t is not None and t.ok and t.verdict == "match"
+            if passed:
+                adopt(ex.store, candidate)
+                certify(ex.store, ex.log, record.rule_id)
                 return None
             # ponytail: a quarantined test counts as failed; retest it if hazards make that common.
             demote(ex.store, candidate.rule_id, server)
-    ex.unknown.append(f"{rule.action}:{rule.target}")
+    ex.unrecovered.append(error or f"unrecoverable {record.action}:{record.target}")
     return None
+
+
+def _judged(ex: Executor, candidate: Rule, since: Transition) -> bool | None:
+    """What the log says of the candidate from the refuting step on, or None when nothing there tested it.
+
+    A refuting step that succeeded already ran the craft or mine every candidate predicts, and a probe judges
+    every candidate with its grid. Steps before the refuting one may predate the change, so they do not count.
+    """
+    recent = [t for t in ex.log if t.episode == since.episode and t.step >= since.step]
+    against, confirmed = replayed(recent, candidate, ex.store.rules)
+    if against:
+        return False
+    return True if confirmed else None
+
+
+def adopt(store: RuleStore, candidate: Rule) -> Rule:
+    """The candidate becomes the record it revises, a hypothesis until certified; every live candidate of that record retires."""
+    for rule in [r for r in store.rules.values() if r.revision_of == candidate.revision_of and r.status == "hypothesis"]:
+        store.add(replace(rule, status="demoted"))
+    record = replace(
+        store.rules[candidate.revision_of], delta=dict(candidate.delta), tool=candidate.tool, near=candidate.near,
+        status="hypothesis", source=candidate.source, evidence=(),
+    )
+    store.add(record)
+    return record
 
 
 def _test(ex: Executor, candidate: Rule) -> Transition | str | None:

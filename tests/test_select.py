@@ -18,11 +18,11 @@ class OrderTestsTests(unittest.TestCase):
         counted = candidate(3, {"planks": -2, "stick": 2})
         self.assertEqual(order_tests([swapped, added, counted], {"planks": 2}), [counted, added, swapped])
 
-    def test_equal_costs_go_first_to_the_grid_that_differs_from_more_candidates(self):
-        two = candidate(1, {"planks": -2, "stick": 2})
-        three = candidate(2, {"planks": -2, "stick": 3})
-        coal = candidate(3, {"planks": -2, "coal": -1, "stick": 4})
-        self.assertEqual(order_tests([two, three, coal], {"planks": 2, "coal": 1}), [coal, two, three])
+    def test_equal_costs_go_first_to_the_grid_most_candidates_share(self):
+        coal = candidate(1, {"planks": -2, "coal": -1, "stick": 4})
+        two = candidate(2, {"planks": -2, "stick": 2})
+        three = candidate(3, {"planks": -2, "stick": 3})
+        self.assertEqual(order_tests([coal, two, three], {"planks": 2, "coal": 1}), [two, three, coal])
 
 
 if __name__ == "__main__":
