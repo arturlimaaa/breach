@@ -15,6 +15,7 @@ class ClassifyTests(unittest.TestCase):
             ("mine", None): "ignored",
             ("move", "east"): "tolerant",
             ("probe", "stick"): "ignored",
+            ("place", "crafting_table"): "tolerant",
             ("look", None): "ignored",
         }
         self.assertEqual({key: classify(*key) for key in expected}, expected)
