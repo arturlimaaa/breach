@@ -234,3 +234,71 @@ test('mine digs the nearest block that has a path, the one a toward-move reaches
     { result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [], executed: true }, dug: [b] }
   )
 })
+
+// The bot at `feet`. A path whose goal `reachable` accepts ends in the goal's column; any other path stops one block
+// toward its goal and rejects, as the pathfinder's partial paths do.
+function walkingBot (feet, reachable) {
+  const bot = Object.assign(new EventEmitter(), {
+    paths: [],
+    entity: { position: feet },
+    pathfinder: {
+      setGoal () {},
+      async goto (goal) {
+        bot.paths.push([goal.x, goal.z])
+        const at = bot.entity.position.floored()
+        if (reachable(goal)) {
+          bot.entity.position = new Vec3(goal.x + 0.5, feet.y, goal.z + 0.5)
+          return
+        }
+        bot.entity.position = bot.entity.position.offset(Math.sign(goal.x - at.x), 0, Math.sign(goal.z - at.z))
+        throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' })
+      }
+    }
+  })
+  return bot
+}
+
+test('a heading move reaches the point n blocks along it, a diagonal block being one on each axis', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => true)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { heading: 'NE', blocks: 8 } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: true, message: 'moved 8 blocks NE', output: { x: 8, y: 64, z: -8 }, events: [], executed: true }, paths: [[8, -8]] }
+  )
+})
+
+test('a heading move with no path to its point falls back to half, then a quarter, of the same line', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), goal => goal.x <= 5)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { heading: 'E', blocks: 16 } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    {
+      result: { ok: true, message: 'moved 4 blocks E', output: { x: 4, y: 64, z: 0 }, events: [], executed: true },
+      paths: [[16, 0], [8, 0], [4, 0]]
+    }
+  )
+})
+
+test('a blocked heading move fails where its partial paths left the bot, executed', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => false)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { heading: 'E', blocks: 16 } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    {
+      result: { ok: false, message: 'no path E', output: { x: 3, y: 64, z: 0 }, events: [], executed: true },
+      paths: [[16, 0], [8, 0], [4, 0]]
+    }
+  )
+})
+
+test('a heading move with an unknown heading is refused without executing', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => true)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { heading: 'UP', blocks: 8 } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    {
+      result: { ok: false, message: 'move: heading must be N, NE, E, SE, S, SW, W, or NW, and blocks a positive integer', output: null, events: [], executed: false },
+      paths: []
+    }
+  )
+})

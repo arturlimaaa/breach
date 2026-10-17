@@ -4,7 +4,7 @@ import mineflayer from 'mineflayer'
 import pathfinderPlugin from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { clear, fill, normalize, slotsFor } from './craft.mjs'
-import { glance } from './look.mjs'
+import { glance, HEADINGS } from './look.mjs'
 
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
@@ -126,12 +126,34 @@ export class MineflayerWorld {
       this.#executed = true
       return { ok: true, message: `moved toward ${target.toward}` }
     }
+    if (target?.heading !== undefined) return this.#head(target.heading, target.blocks)
     const offset = DIRECTIONS.get(target)
-    if (!offset) throw new Error('target must be north, south, east, west, or {"toward": block}')
+    if (!offset) throw new Error('target must be north, south, east, west, {"toward": block}, or {"heading": h, "blocks": n}')
     const { x, z } = this.position()
     await this.#goto(new goals.GoalXZ(x + offset[0], z + offset[1]), target)
     this.#executed = true
     return { ok: true, message: `moved ${target}` }
+  }
+
+  // Paths to the point n blocks along a heading, or failing that to the points n/2 and n/4 along the same line, so a
+  // blocked line still makes progress. Every point is measured from where the move started.
+  async #head (heading, blocks) {
+    const offset = HEADINGS.get(heading)
+    if (!offset || !Number.isInteger(blocks) || blocks < 1) {
+      throw new Error('heading must be N, NE, E, SE, S, SW, W, or NW, and blocks a positive integer')
+    }
+    const { x, z } = this.position()
+    this.#executed = true
+    for (const k of new Set([blocks, Math.floor(blocks / 2), Math.floor(blocks / 4)].filter(k => k > 0))) {
+      try {
+        // Within one block of the point, diagonals included.
+        await this.#goto(new goals.GoalNearXZ(x + k * offset[0], z + k * offset[1], 1.5), `${k} blocks ${heading}`)
+        return { ok: true, message: `moved ${k} blocks ${heading}`, output: this.position() }
+      } catch {
+        // A shorter stretch of the line may still have a path.
+      }
+    }
+    return { ok: false, message: `no path ${heading}`, output: this.position() }
   }
 
   async #mine (target) {
