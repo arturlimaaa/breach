@@ -7,7 +7,7 @@ from breach.certify import replay
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.store import RuleStore
-from breach.tasks import H1, T1
+from breach.tasks import H1, H2, T1
 from breach.world import VANILLA, GridWorld, Recipe, rules_from_ruleset
 
 
@@ -43,6 +43,23 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(
             (result.success, len(log) == result.actions, log.contradictions(), mined),
             (True, True, [], {("log", "exact")}),
+        )
+
+    def test_glance_reaches_a_wooden_pickaxe_on_h2_within_budget(self):
+        outcomes = []
+        for seed in range(1, 6):
+            log = TransitionLog()
+            result = run_episode(GridWorld(H2, seed=seed), certified_store(), log, "h2")
+            outcomes.append((seed, result.success, len(log) == result.actions))
+        self.assertEqual(outcomes, [(seed, True, True) for seed in range(1, 6)])
+
+    def test_logs_in_sight_need_no_glance(self):
+        log = TransitionLog()
+        result = run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")
+        self.assertEqual(
+            (result.actions, [(t.action, t.target) for t in log if t.action != "move"]),
+            (19, [("mine", "log"), ("craft", "planks"), ("craft", "crafting_table"), ("mine", "log"), ("craft", "planks"),
+                  ("craft", "stick"), ("mine", "log"), ("craft", "planks"), ("craft", "wooden_pickaxe")]),
         )
 
     def test_partial_inventory_skips_the_crafting_table(self):
