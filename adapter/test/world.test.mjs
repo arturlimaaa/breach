@@ -4,16 +4,20 @@ import { EventEmitter } from 'node:events'
 import { Vec3 } from 'vec3'
 import { MineflayerWorld } from '../world.mjs'
 
-// Ground at y 63 and air above it, except the cells listed as "x,y,z": boundingBox.
+// Ground at y 63 and air above it, except the cells listed as "x,y,z": boundingBox. Holds one crafting table.
 function placingBot (position, cells) {
   const placed = []
+  let items = [{ name: 'crafting_table', count: 1 }]
   return Object.assign(new EventEmitter(), {
     placed,
     entity: { position },
-    inventory: { items: () => [{ name: 'crafting_table', count: 1 }] },
+    inventory: { items: () => items },
     blockAt: at => ({ position: at, boundingBox: cells[`${at.x},${at.y},${at.z}`] ?? (at.y < 64 ? 'block' : 'empty') }),
     equip: async () => {},
-    placeBlock: async (reference, face) => { placed.push([reference.position, face]) }
+    placeBlock: async (reference, face) => {
+      placed.push([reference.position, face])
+      items = []
+    }
   })
 }
 
@@ -44,7 +48,7 @@ test('place uses the first free cell on solid ground that the bot does not overl
   assert.deepEqual(
     { result, placed: bot.placed },
     {
-      result: { ok: true, message: 'placed crafting_table at -1,64,0', output: { x: -1, y: 64, z: 0 }, events: [] },
+      result: { ok: true, message: 'placed crafting_table at -1,64,0', output: { crafting_table: -1 }, events: [] },
       placed: [[new Vec3(-1, 63, 0), new Vec3(0, 1, 0)]]
     }
   )

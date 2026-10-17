@@ -27,6 +27,7 @@ async function session (t, stacks, recipe) {
   await once(server, 'listening')
   server.on('playerJoin', client => {
     client.write('login', { ...data.loginPacket, entityId: 1 })
+    client.write('spawn_position', { location: { x: 8, y: 64, z: -24 } })
     client.write('window_items', { windowId: 0, items: slots.map(toNotch) })
     // Commands land a few ticks later, as on a real server.
     client.on('chat', ({ message }) => setTimeout(() => {
@@ -116,12 +117,16 @@ test('probe reads the result slot and puts every ingredient back', async (t) => 
   )
 })
 
-test('reset returns its commands only after /clear and /give land, even when the inventory already matches', async (t) => {
+test('reset centers the border on the world spawn and returns only after /clear and /give land', async (t) => {
   const { world, commands } = await session(t, [[36, 'oak_planks', 4]], sticks(4))
   const message = await world.reset({ planks: 4 })
   assert.deepEqual(
     { message, commands: commands(), inventory: world.inventory() },
-    { message: '/clear; /give @s oak_planks 4', commands: 2, inventory: { planks: 4 } }
+    {
+      message: '/worldborder center 8 -24; /worldborder set 256; /clear; /give @s oak_planks 4',
+      commands: 4,
+      inventory: { planks: 4 }
+    }
   )
 })
 
