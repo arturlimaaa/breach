@@ -57,6 +57,23 @@ test('a step returns its result, events, and the next observation', async (t) =>
   })
 })
 
+test('look reports the nearest known block per heading and leaves empty headings out', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'look' })
+  assert.deepEqual(result, {
+    ok: true,
+    message: 'blocks along 4 headings',
+    output: {
+      E: { block: 'log', distance: 1 },
+      SE: { block: 'stone', distance: 3 },
+      S: { block: 'stone', distance: 3 },
+      SW: { block: 'stone', distance: 3 }
+    },
+    events: []
+  })
+})
+
 test('observe repeats the observation without counting an action', async (t) => {
   const call = await start(t)
   const { body: { message, ...observation } } = await call('POST', '/reset', task())
@@ -70,6 +87,22 @@ test('holding the goal count ends the episode with success', async (t) => {
   await call('POST', '/step', { action: 'mine', target: 'log' })
   const { body: { observation: { action_count, done, success } } } = await call('POST', '/step', { action: 'mine', target: 'log' })
   assert.deepEqual({ action_count, done, success }, { action_count: 2, done: true, success: true })
+})
+
+test('steps after success still run until the budget is spent', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task({ count: 1, budget: 3 }))
+  await call('POST', '/step', { action: 'mine', target: 'log' })
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'mine', target: 'log' })
+  assert.deepEqual(
+    { result, action_count: observation.action_count, done: observation.done, success: observation.success },
+    {
+      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [] },
+      action_count: 2,
+      done: true,
+      success: true
+    }
+  )
 })
 
 test('the budget ends the episode and later steps are refused without counting', async (t) => {

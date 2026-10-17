@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 
@@ -11,6 +11,7 @@ from .baseline_b import Option, _distance, _heading, _nearest, _spiral, menu, st
 from .induce import _FENCE
 from .llm import complete
 from .log import TransitionLog
+from .planner import plan
 from .rules import Rule
 from .world import RADIUS, VANILLA, Action, GridWorld, Observation, Position, Task, rules_from_ruleset
 
@@ -71,11 +72,33 @@ def run_episode_a(world: GridWorld, log: TransitionLog, episode: str, complete: 
             elif kind == "move":
                 result = act(Action("move", _heading(world.position, _nearest(known, rule.target, world.position))))
             else:
-                result = act(Action(kind, rule.target if kind == "craft" else None), rule)
+                result = act(Action(kind, rule.target, rule.inputs if kind == "craft" else None), rule)
             if not result.ok:
                 head = f'"{key}" failed: {result.message}.'
                 break
     return EpisodeResultA(world.success, world.actions, calls, "goal" if world.success else "budget")
+
+
+def vanilla_replanner(world: GridWorld, env: Mapping[str, str] | None = None) -> tuple[Callable[..., str], list]:
+    """Fake Nemotron that knows only vanilla: every call answers the vanilla plan from the world's inventory.
+
+    The answer comes from a fake endpoint behind `llm.complete`, so a BREACH_RUN_DIR in `env` logs each call as a real one.
+    """
+    calls = []
+    rules = rules_from_ruleset(VANILLA, status="certified")
+    # The dummy key passes llm.complete's check; the model name marks the logged calls as this fake.
+    offline = {"BREACH_LLM_API_KEY": "offline", "BREACH_LLM_MODEL": "vanilla-replanner", **(env or {})}
+
+    def endpoint(url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, bytes]:
+        steps = plan(world.task.goal, world.task.count, world.observe().inventory, rules, lambda block: 1)
+        keys = [f"craft {s.target} x{s.delta[s.target]}" if s.action == "craft" else f"mine {s.target}" for s in steps]
+        return 200, json.dumps({"choices": [{"message": {"content": json.dumps(keys)}}]}).encode()
+
+    def replan(messages, **kwargs):
+        calls.append((messages, kwargs))
+        return complete(messages, **kwargs, transport=endpoint, env=offline)
+
+    return replan, calls
 
 
 def _look(bundled: list[Rule], obs: Observation, known: dict[Position, str]) -> tuple[dict[Position, str], dict[str, Option]]:

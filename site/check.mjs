@@ -1,4 +1,5 @@
-// No browser: the pages touch the DOM only through getElementById, so a fake DOM and a file-backed fetch run them as-is.
+// No browser: the pages touch the DOM only through getElementById and properties of what it returns,
+// so a fake DOM and a file-backed fetch run them as-is.
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ const FIXTURES = join(SITE, 'fixtures');
 const fixture = async path => JSON.parse(await readFile(join(FIXTURES, path), 'utf8'));
 const codes = html => [...html.matchAll(/<code>([^<]*)<\/code>/g)].map(m => m[1]);
 
-// `served` answers a file name with an object instead of reading the run directory.
+// `served` answers a file name with an object, or with a string as the raw body, instead of reading the run directory.
 async function render(page, run, served = {}) {
   const html = await readFile(join(SITE, page), 'utf8');
   const elements = {}, fetches = [];
@@ -20,12 +21,13 @@ async function render(page, run, served = {}) {
     URLSearchParams,
     location: { search: `?run=${run}` },
     setInterval: () => 0,
-    document: { getElementById: id => (elements[id] ??= { className: '', innerHTML: '', textContent: '' }) },
+    document: { getElementById: id => (elements[id] ??= { className: '', innerHTML: '', textContent: '', querySelector: () => null }) },
     // A missing file answers like http.server's 404: not ok, and a body that is not JSON.
     fetch: url => {
-      const name = url.split('/').pop();
-      const text = name in served ? Promise.resolve(JSON.stringify(served[name])) : readFile(new URL(url, base), 'utf8').catch(() => '');
-      const response = text.then(text => ({ ok: text !== '', json: async () => JSON.parse(text) }));
+      const name = url.split('/').pop(), value = served[name];
+      const body = name in served ? Promise.resolve(typeof value === 'string' ? value : JSON.stringify(value))
+        : readFile(new URL(url, base), 'utf8').catch(() => '');
+      const response = body.then(text => ({ ok: text !== '', json: async () => JSON.parse(text), text: async () => text }));
       fetches.push(response);
       return response;
     },
@@ -33,17 +35,23 @@ async function render(page, run, served = {}) {
   for (const [, src, inline] of html.matchAll(/<script(?: src="([^"]+)")?>([\s\S]*?)<\/script>/g)) {
     vm.runInContext(src ? await readFile(join(SITE, src), 'utf8') : inline, context);
   }
-  await Promise.all(fetches);
-  await new Promise(resolve => setImmediate(resolve));
+  // A fetch can start another (watch.html reads manifest.json, then the log), so wait until none is new.
+  for (let seen = -1; seen < fetches.length;) {
+    seen = fetches.length;
+    await Promise.all(fetches);
+    await new Promise(resolve => setImmediate(resolve));
+  }
   return elements;
 }
 
+const jsonl = async path => (await readFile(join(FIXTURES, path), 'utf8')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+
 test('every fixture parses', async () => {
-  const files = (await readdir(FIXTURES, { recursive: true })).filter(f => f.endsWith('.json')).sort();
-  await Promise.all(files.map(fixture));
+  const files = (await readdir(FIXTURES, { recursive: true })).filter(f => /\.jsonl?$/.test(f)).sort();
+  await Promise.all(files.map(f => f.endsWith('.jsonl') ? jsonl(f) : fixture(f)));
   assert.deepEqual(files, [
-    'certified/status.json', 'demoted/status.json', 'demoted/store.json',
-    'proof.json', 'revising/status.json', 'status.json', 'store.json',
+    'certified/status.json', 'demoted/status.json', 'demoted/store.json', 'manifest.json', 'proof.json',
+    'revising/status.json', 'status.json', 'stick-count-2-hc-s1.jsonl', 'store.json',
   ]);
 });
 
@@ -159,11 +167,55 @@ test('the banner renders each rule status', async () => {
   ]);
 });
 
-test('pages load nothing from the network and their markup holds no numbers', async () => {
+const stepRows = html => [...html.matchAll(/<tr class="([^"]*)"><td>([^<]*)<\/td>[\s\S]*?<td class="([^"]*)">([^<]*)<\/td><\/tr>/g)]
+  .map(([, cls, step, tone, verdict]) => ({ step: Number(step), test: cls === 'test', tone, verdict }));
+const lines = steps => steps.map(t => JSON.stringify({ action: 'move', target: 'east', predicted: {}, observed: {}, verdict: 'match', test: false, ...t })).join('\n');
+
+test('the step log shows the newest transitions first, at most thirty', async () => {
+  const logged = async (run, served) => stepRows((await render('watch.html', run, served)).log.innerHTML).map(r => r.step);
+  const long = lines(Array.from({ length: 35 }, (_, i) => ({ step: i + 1 })));
+  assert.deepEqual(
+    { fixture: await logged('../site/fixtures'), long: await logged('../site/fixtures/missing', { 't1.jsonl': long }) },
+    { fixture: (await jsonl('stick-count-2-hc-s1.jsonl')).map(t => t.step).reverse(), long: Array.from({ length: 30 }, (_, i) => 35 - i) },
+  );
+});
+
+test('step verdicts take the banner\'s colors, and test steps are marked', async () => {
+  const banner = await readFile(join(SITE, 'banner.html'), 'utf8');
+  const color = cls => (cls && banner.match(new RegExp(`\\.${cls}\\b[^{]*\\{ color: (#\\w+)`))?.[1]) || null;
+  const log = lines([
+    { step: 1, action: 'mine', target: 'log', predicted: { log: 1 }, observed: { log: 1 } },
+    { step: 2, action: 'probe', target: 'stick', predicted: { stick: 2 }, observed: { stick: 2 }, test: true },
+    { step: 3, action: 'craft', target: 'stick', predicted: { planks: -2, stick: 4 }, observed: { planks: -2, stick: 2 }, verdict: 'mismatch' },
+    { step: 4, action: 'mine', target: 'stone', predicted: { cobblestone: 1 }, verdict: 'quarantined' },
+    { step: 5, action: 'look', target: null, verdict: 'ignored' },
+  ]);
+  const page = await render('watch.html', '../site/fixtures/missing', { 't1.jsonl': log });
+  assert.deepEqual(stepRows(page.log.innerHTML).map(r => [r.step, r.test, r.verdict, color(r.tone)]), [
+    [5, false, 'ignored', null],
+    [4, false, 'quarantined', '#fbbf24'],
+    [3, false, 'mismatch', '#f87171'],
+    [2, true, 'match', '#4ade80'],
+    [1, false, 'match', '#4ade80'],
+  ]);
+});
+
+test('the watch page says when there is no status and no steps yet', async () => {
+  const page = await render('watch.html', '../site/fixtures/missing');
+  assert.deepEqual([page.status.innerHTML, page.log.innerHTML, page.viewer.src], [
+    '<p class="missing">No status yet.</p>',
+    '<p class="missing">No steps yet in <code>t1.jsonl</code>.</p>',
+    'http://127.0.0.1:3007',
+  ]);
+});
+
+test('pages load nothing from another origin but the viewer, and their markup holds no numbers', async () => {
   const offenders = [];
   for (const name of (await readdir(SITE)).filter(f => /\.(html|css|js)$/.test(f))) {
     const text = await readFile(join(SITE, name), 'utf8');
-    if (/https?:\/\//.test(text)) offenders.push(`${name}: external URL`);
+    // The adapter's viewer, framed by watch.html, is the one other origin.
+    const urls = (text.match(/https?:\/\/[^\s'"`)]+/g) ?? []).filter(url => !(name === 'watch.html' && url === 'http://127.0.0.1:3007'));
+    offenders.push(...urls.map(url => `${name}: ${url}`));
     const markup = text.replace(/<(script|style)\b[\s\S]*?<\/\1>|<[^>]*>/g, '');
     if (name.endsWith('.html') && /\d/.test(markup)) offenders.push(`${name}: digit in markup`);
   }

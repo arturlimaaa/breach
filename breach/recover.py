@@ -115,7 +115,7 @@ def _test(ex: Executor, candidate: Rule) -> Transition | str | None:
         if not ex.travel_to(candidate.target) or ex.world.done:
             return None
         step = Step(candidate.rule_id, "mine", candidate.target, dict(candidate.delta), candidate.near, candidate.tool, test=True)
-        return ex.act(Action("mine"), step)[0]
+        return ex.act(Action("mine", candidate.target), step)[0]
     needs = {**candidate.inputs, **({candidate.near: 1} if candidate.near else {})}
     while True:
         held = ex.observe().inventory

@@ -28,7 +28,7 @@ the same server.
 | Text model | Nemotron 3 Super (Crusoe Managed Inference, fallback build.nvidia.com) for induction and for the planners in A and B. Thinking on with a 2k budget for induction, off elsewhere. Ollama `nemotron-3-nano:4b` as the offline inducer. |
 | Nemotron prize | Tier ablation (Super vs Nano 30B vs Nano 4B) on the grid; NeMo Gym environment wrapper and transition-log export. No NemoClaw. |
 | Minecraft | Java 1.16.5, vanilla server, Peaceful, `doDaylightCycle false`, `keepInventory true`, world border, reset from a saved world folder. Datapacks `pack_format` 6, `data/minecraft/recipes/`. |
-| Footage | Real 1.16.5 client in spectator mode on the bot, OBS capture, banner as an OBS browser source fed by the status endpoint. |
+| Footage | The adapter's browser viewer (prismarine-viewer, `VIEWER_PORT`) captured by OBS, banner as an OBS browser source fed by the status file. A real 1.16.5 client in spectator mode only if a Java Edition license is available; the demo cannot join servers. |
 | Code split | Python core (grid, store, planner, verifier, certifier, inducer client, evaluator, proof script). Node adapter (Mineflayer) over local HTTP. |
 
 ## Architecture
@@ -163,6 +163,7 @@ recordings.
 - Minecraft EULA acceptance for the local server (`eula=true` is the operator's act).
 - Repo name and GitHub remote.
 - Decide whether the comparison with rmalde's harness is published.
+- Optional: one Java Edition license for spectator footage (the demo cannot join servers).
 
 ## Site data contract
 

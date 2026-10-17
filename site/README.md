@@ -9,16 +9,17 @@ open "http://localhost:8000/site/?run=<run>"
 
 - `index.html`: the dashboard. The headline and episode tables from `proof.json`, the plan diff with the rule under revision, and every stored rule grouped by status.
 - `banner.html`: the OBS overlay. Add a Browser source at `http://localhost:8000/site/banner.html?run=<run>`, 1920×1080. The page background is transparent. It polls `status.json` every 250 ms and keeps the last frame when a read fails.
+- `watch.html`: the adapter's browser viewer beside the status panel and the newest 30 steps of `<episode>.jsonl`, polled every second, at `http://localhost:8000/site/watch.html?run=<run>&episode=<id>&viewer=<url>`. `?episode=` defaults to the first episode in `manifest.json`, else `t1`, because `breach.live` names the log after the task id and writes the manifest only at the end. `?viewer=` defaults to `http://127.0.0.1:3007`; the viewer is the one thing any page loads from another origin. A line still being written is skipped until the next poll.
 
-Both pages read `runs/<run>/`. `?run=` defaults to `latest`: the runner keeps `runs/latest` as a symlink to the newest run.
+Every page reads `runs/<run>/`. `?run=` defaults to `latest`: the runner keeps `runs/latest` as a symlink to the newest run.
 
 A run name is a path under `runs/`, so `?run=../site/fixtures` previews the fixtures. The banner has three more states: `?run=../site/fixtures/certified`, `../site/fixtures/demoted` and `../site/fixtures/revising`. `demoted` also carries a `store.json` for its before and after card.
 
-Gate: `node site/check.mjs` (Node 24) runs both pages against the fixtures in a vm, with no browser and no network.
+Gate: `node site/check.mjs` (Node 24) runs every page against the fixtures in a vm, with no browser and no network.
 
 ## Data contract
 
-The pages read three files from `runs/<run>/` and ignore keys they do not know. A missing or unparsable file is reported in place of its section.
+The pages read these files from `runs/<run>/` and ignore keys they do not know. A missing or unparsable file is reported in place of its section.
 
 ### status.json
 
@@ -57,8 +58,14 @@ The headline table shows the `worst` rows first, one per system, then each syste
 
 The rule store file as `RuleStore` writes it: a JSON list of `Rule.to_dict()`. The pages read `rule_id`, `status`, `delta`, `scope`, `evidence`, `tool`, `near`, `source` and `revision_of`.
 
+### &lt;episode&gt;.jsonl and manifest.json
+
+The transition log as `TransitionLog` writes it, one record per line. `watch.html` reads `step`, `action`, `target`, `predicted`, `observed`, `verdict` and `test`, and colors a verdict with the banner's class for the same outcome: `match` as certified, `mismatch` as demoted, `quarantined` as revising. From `manifest.json` it reads only `episodes[0].id`.
+
 ## Fixtures
 
 The status and store fixtures show a stone pickaxe episode on a server where a stick craft yields 2, not 4. Step numbers, plans and evidence lists come from the grid executor on seed 1, with training on T1 to T3 over seeds 1 and 2. The recovery is hand-written: the probe step, the revised rule's `source` and evidence, and the Nemotron latency.
 
 `proof.json` is the unedited output of `python3 -m breach.matrix runs/site-fixture --seeds 1 --systems B D`: every benchmarked change, systems B and D. D does not recover from a contradiction yet, so neither system's worst case recovers. `check.mjs` serves a small in-memory `proof.json` to cover the recovered and no-contradiction cases.
+
+`stick-count-2-hc-s1.jsonl` and `manifest.json` are copied unedited from `python3 -m breach.matrix runs/x --seeds 1 --systems D --changes stick-count-2`. The episode is 12 steps long because D stops at the contradiction. `check.mjs` serves in-memory logs for the 30-step cap, the quarantined and ignored verdicts, and a test step.

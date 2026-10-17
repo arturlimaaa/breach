@@ -37,8 +37,8 @@ export function serve (world) {
     'GET /observe': async () => [200, observation()],
     'POST /step': async step => {
       if (typeof step?.action !== 'string') return [400, { error: 'body must be {action, target, grid}' }]
-      const before = observation()
-      if (before.done) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: before }]
+      // Steps go on after success, so recovery can still act before the episode returns; only the budget stops them.
+      if (actions >= task.budget) return [200, { ok: false, message: 'episode is over', output: null, events: [], observation: observation() }]
       actions += 1
       return [200, { ...await world.act(step), observation: observation() }]
     }
@@ -80,6 +80,10 @@ if (import.meta.main) {
     process.exit(1)
   })
   await once(bot, 'spawn')
+  if (process.env.VIEWER_PORT) {
+    const { default: viewer } = await import('prismarine-viewer')
+    viewer.mineflayer(bot, { port: Number(process.env.VIEWER_PORT), firstPerson: false })
+  }
   const world = new MineflayerWorld(bot, `mc/${host}:${port}/${process.env.MC_WORLD ?? 'world'}`)
   const listen = Number(process.env.PORT ?? 3100)
   serve(world).listen(listen, '127.0.0.1', () => console.log(`adapter on http://127.0.0.1:${listen} for ${world.server}`))

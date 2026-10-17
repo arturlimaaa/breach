@@ -54,8 +54,11 @@ npm start
 | `MC_HOST`, `MC_PORT` | `127.0.0.1`, `25565` | Minecraft server |
 | `MC_USERNAME` | `breach` | Bot name. `ops.json` is written for this name. |
 | `MC_WORLD` | `world` | World name in the `server` field, `mc/<host>:<port>/<world>`. Set it per change world so server-scoped rules stay apart. |
+| `VIEWER_PORT` | unset | When set, serves a third-person 3D view of the bot in the browser at `http://127.0.0.1:<port>`. It listens on all interfaces; prismarine-viewer has no host option. |
 
-The adapter exits when the bot leaves the server.
+The adapter exits when the bot leaves the server. The viewer is prismarine-viewer 1.32.0: 1.33.0 loads the native
+`canvas` package at runtime without declaring it, so it fails to import. The viewer's camera follows the bot only
+once the bot first moves.
 
 `POST /reset` centers a 256-block world border on the world spawn, clears the inventory with `/clear`, then fills it
 with one `/give` per task item. Its response is the observation plus `message`, the commands it issued
@@ -65,13 +68,19 @@ start state. Blocks are not restored.
 Steps over Minecraft:
 
 - `move`: `target` is `north`, `south`, `east`, `west` (one block), or `{"toward": "log"}`, which paths until the
-  nearest visible block of that type is horizontally within 1 block and in line of sight. Paths never dig or place
-  blocks, so moving leaves the inventory alone. Bounded at 20 s.
-- `look`: changes nothing. Every observation lists the non-air blocks within 8 blocks that have a clear line from the
-  bot's eyes, nearest first.
-- `mine`: `target` is a block name. Walks to the nearest visible one (20 s), digs it with the fastest held tool, then
-  waits up to 3 s for the drop. `output` is `{block_removed, collected}`. `block_removed` is read after that wait, so
-  a dig the server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
+  nearest visible block of that type is horizontally within 1 block and within 4.5 blocks of reach. Paths never dig or
+  place blocks, so moving leaves the inventory alone. A failed path stops the bot where it stands. Bounded at 20 s.
+- `look`: changes nothing. `output` maps each heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW` to the nearest `log`,
+  `stone`, `coal_ore`, or `crafting_table` as `{"block", "distance"}`, and leaves out headings that show none. It
+  searches like the grid's look, over the loaded chunks: a corridor 7 wide and 48 long, step by step, center lane
+  first. Each corridor cell is a column searched within 16 blocks of the feet, nearest height first. A block counts
+  only when it touches air; worldgen fills caves with `cave_air`, so buried stone and cave walls stay out. A look that
+  finds nothing reads about 280,000 blocks in about 0.15 s.
+- Every observation lists the non-air blocks within 8 blocks that have a clear line from the bot's eyes, nearest first.
+- `mine`: `target` is a block name. Walks within reach of the nearest visible one (20 s) and digs it with the fastest
+  held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
+  waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the
+  server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
 - `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
   foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
   the block there, and the message gives its position. `output` is the inventory delta, as for `craft`:
@@ -86,6 +95,8 @@ Steps over Minecraft:
   `probe` reports the result slot, `{}` when empty, and puts everything back.
 - `events` lists `death`, `damage` (the bot was hurt), and `kicked` seen during the step.
 - Every step is bounded at 60 s. A timeout or an error inside the step is `ok: false` with a message.
+- Steps go on after the goal is reached, so recovery can still act; `done` and `success` report as before. Only a
+  spent budget refuses a step, with `ok: false` and `"episode is over"`, without counting it.
 
 The shape table is shape knowledge only, so that two planks go one above the other and do not craft a pressure plate.
 It says nothing about what a grid produces: the server decides that. The change datapacks are shapeless, so any

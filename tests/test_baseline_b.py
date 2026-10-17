@@ -7,7 +7,7 @@ from breach.certify import replay
 from breach.log import Transition, TransitionLog
 from breach.tasks import T1, T2
 from breach.world import VANILLA, GridWorld, Recipe, Task
-from tests.test_loop import Hurt
+from tests.test_loop import GOLDEN, Hurt
 
 
 def changed(item, recipe):
@@ -27,6 +27,11 @@ class BaselineBTests(unittest.TestCase):
             (result.success, len(log) == result.actions, log.contradictions(), result.planner_calls, mined),
             (True, True, [], 1, {("log", "exact")}),
         )
+
+    def test_t1_seed_1_logs_the_golden_transitions(self):
+        log = TransitionLog()
+        run_episode_b(GridWorld(T1, seed=1), log, "t1", vanilla_plan)
+        self.assertEqual(list(log), list(TransitionLog(GOLDEN / "b-t1-s1.jsonl")))
 
     def test_budget_exhausted_on_arrival_logs_no_phantom_step(self):
         full = TransitionLog()

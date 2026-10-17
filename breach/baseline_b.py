@@ -106,7 +106,7 @@ def run_episode_b(
         elif kind == "move":
             result = act(Action("move", _heading(world.position, _nearest(known, rule.target, world.position))))
         else:
-            result = act(Action(kind, rule.target if kind == "craft" else None), rule)
+            result = act(Action(kind, rule.target, rule.inputs if kind == "craft" else None), rule)
         if result.ok:
             failures = []
         else:

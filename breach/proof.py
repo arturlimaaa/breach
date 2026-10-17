@@ -26,13 +26,18 @@ def read_log(path: Path) -> TransitionLog:
     return log
 
 
-def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> dict:
-    """The manifest entry, once the log confirms its action count and success, plus the first contradiction's metrics and the text-model cost."""
+def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict], later: list[Transition]) -> dict:
+    """The manifest entry, once the log confirms its action count and success, plus the first contradiction's metrics and the text-model cost.
+
+    `later` holds the transitions of the run's later episodes on the same server, where a recovery may first show.
+    """
     if len(log) != entry["actions"]:
         raise ValueError(f"episode {entry['id']}: {len(log)} logged transitions for {entry['actions']} actions; the log must have one line per action")
     held = Counter(entry["inventory"])
     for t in log:
-        held.update(t.observed)
+        # A probe observes the output slot and takes its ingredients back, so it never changes the inventory.
+        if t.action != "probe":
+            held.update(t.observed)
     if (held[entry["goal"]] >= entry["count"]) != entry["success"]:
         raise ValueError(
             f"episode {entry['id']}: the log ends holding {held[entry['goal']]} of {entry['count']} {entry['goal']},"
@@ -53,12 +58,18 @@ def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> 
     def same(t: Transition) -> bool:
         return (t.action, t.target) == (first.action, first.target)
 
-    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither.
+    def revises(t: Transition) -> bool:
+        # The server copy is <rule_id>@<server> and each candidate <rule_id>#n, at any depth.
+        return t.rule_id is not None and t.rule_id.startswith((f"{first.rule_id}@", f"{first.rule_id}#"))
+
+    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither,
+    # and not a test: a recovery test re-runs the step under a candidate's revised prediction.
     after = [t for t in rest if t.action not in ("move", "look")]
+    attempt = next((t for t in after if not t.test), None)
     return record | {
         "actions_after_contradiction": sum(t.rule_id == first.rule_id for t in after),
-        "immediate_repeat": int(bool(after) and same(after[0])),
-        "recovery_latency": next((n for n, t in enumerate(rest, 1) if same(t) and t.verdict == "match"), None),
+        "immediate_repeat": int(attempt is not None and same(attempt)),
+        "recovery_latency": next((n for n, t in enumerate([*rest, *later], 1) if revises(t) and t.verdict == "match"), None),
     }
 
 
@@ -104,13 +115,18 @@ def worst_case(episodes: list[dict]) -> dict:
 
 
 def read_run(run_dir: Path) -> list[dict]:
-    """Measured episodes of the one system whose manifest.json sits in `run_dir`."""
+    """Measured episodes of the one system whose manifest.json sits in `run_dir`, in the order they ran."""
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     calls = _jsonl(run_dir / "model_calls.jsonl")
-    return [
-        measure(entry, manifest["system"], read_log(run_dir / f"{entry['id']}.jsonl"), [c for c in calls if c["episode"] == entry["id"]])
-        for entry in manifest["episodes"]
-    ]
+    entries = manifest["episodes"]
+    logs = [read_log(run_dir / f"{entry['id']}.jsonl") for entry in entries]
+    measured = []
+    for i, (entry, log) in enumerate(zip(entries, logs)):
+        # ponytail: later episodes on the server count as the same agent's, true of every run here that revises;
+        # record carry_memory in the manifest before a run that revises without it revisits a server.
+        later = [t for e, other in zip(entries[i + 1:], logs[i + 1:]) if e["server"] == entry["server"] for t in other]
+        measured.append(measure(entry, manifest["system"], log, [c for c in calls if c["episode"] == entry["id"]], later))
+    return measured
 
 
 def proof(run_dir: Path) -> dict:

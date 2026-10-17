@@ -8,7 +8,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from breach.world import Action, GridWorld, Observation, Task
+from breach.world import DIRECTIONS, RADIUS, Action, GridWorld, Observation, Position, StepResult, Task
 
 Y = 64
 
@@ -22,8 +22,35 @@ def observation(obs: Observation) -> dict[str, Any]:
     }
 
 
-def serve(make_world: Callable[[Task], GridWorld]) -> ThreadingHTTPServer:
-    """Serves on a free port of 127.0.0.1 until shutdown(). Each POST /reset builds a fresh world for the posted task."""
+def step(world: GridWorld, action: Action) -> StepResult:
+    """One adapter step on the grid. The adapter's pathing takes one action each: `move {"toward": b}` stops next to the
+    nearest b in view, and `mine b` steps onto the nearest b within reach 1, where the grid mines.
+
+    The adapter's mine walks to any b in sight; reach 1 is stricter so that a test proves the executor travelled first."""
+    toward = action.name == "move" and isinstance(action.target, dict)
+    if world.done or not (toward or action.name == "mine" and action.target):
+        return world.step(action)
+    block, reach = (action.target["toward"], RADIUS) if toward else (action.target, 1)
+    x0, z0 = world.position
+
+    def away(p: Position) -> int:
+        return abs(p[0] - x0) + abs(p[1] - z0)
+
+    cell = min((p for p, b in world.blocks.items() if b == block and away(p) <= reach), key=lambda p: (away(p), p), default=None)
+    if cell is not None and not toward:
+        world.position = cell
+        return world.step(action)
+    world.actions += 1
+    if cell is None:
+        return StepResult(False, f"no {block} within {reach} blocks", None, world.observe())
+    world.position = min(((cell[0] + dx, cell[1] + dz) for dx, dz in DIRECTIONS.values()), key=away)
+    return StepResult(True, f"moved toward {block}", None, world.observe())
+
+
+def serve(make_world: Callable[[Task], GridWorld], on_step: Callable[[dict[str, Any]], None] = lambda body: None) -> ThreadingHTTPServer:
+    """Serves on a free port of 127.0.0.1 until shutdown(). Each POST /reset builds a fresh world for the posted task.
+
+    `on_step` sees every POST /step body as sent."""
     world: GridWorld | None = None
 
     class Handler(BaseHTTPRequestHandler):
@@ -52,7 +79,8 @@ def serve(make_world: Callable[[Task], GridWorld]) -> ThreadingHTTPServer:
                 return 409, {"error": "POST /reset first"}
             if route == "GET /observe":
                 return 200, observation(world.observe())
-            result = world.step(Action(body["action"], body.get("target"), body.get("grid")))
+            on_step(body)
+            result = step(world, Action(body["action"], body.get("target"), body.get("grid")))
             return 200, {
                 "ok": result.ok, "message": result.message, "output": result.output, "events": result.events,
                 "observation": observation(result.observation),

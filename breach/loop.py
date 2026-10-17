@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from itertools import count, cycle, islice, repeat
+from itertools import chain, count, cycle, islice, repeat
 
 from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
@@ -13,6 +13,9 @@ from .status import Status, Writer, shown
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
+
+# ponytail: 8 legs walk 4 blocks out, 12 with the view; a block farther from the start needs an adapter look that reports headings.
+SPIRAL_LEGS = 8
 
 
 @dataclass(frozen=True)
@@ -58,16 +61,14 @@ class Executor:
         before = self.observe()
         result = self.world.step(action)
         predicted = dict(step.delta) if step else {}
-        # A mine action names no block; the step does, and both the exact whitelist and the metrics need it.
-        target = step.target if step else action.target
         if action.name == "probe":
             # A probe consumes nothing; a test probe is checked exactly on what the output slot shows.
             observed, cls = result.output or {}, "exact"
         else:
-            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, target)
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target)
         self.steps += 1
         transition = Transition(
-            self.episode, self.steps, self.world.server, obs_hash(before), action.name, target,
+            self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
             step.rule_id if step else None, predicted, observed, cls,
             verdict(cls, predicted, observed, result.ok, result.events), step.test if step else False,
             result.ok, result.events,
@@ -94,6 +95,9 @@ class Executor:
         self.observe()
         if self.nearest(block) is None and not self.explore_until(block):
             return False
+        if self.world.paths:
+            # One move paths next to the block and the mine walks the last metre. A failed path is not retried.
+            return not self.world.done and self.act(Action("move", block))[1].ok
         target = self.nearest(block)
         while self.world.position != target and not self.world.done:
             dx, dz = target[0] - self.world.position[0], target[1] - self.world.position[1]
@@ -102,7 +106,11 @@ class Executor:
         return self.world.position == target
 
     def explore_until(self, block: str) -> bool:
-        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight."""
+        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight.
+
+        The adapter's look reports no headings, so on a pathing world a look that does not show the block is followed by the
+        first SPIRAL_LEGS legs of the spiral, and then exploring stops.
+        """
         legs = _spiral_legs()
         while not self.world.done:
             _, glance = self.act(Action("look"))
@@ -111,6 +119,8 @@ class Executor:
                 dx, dz = HEADINGS[min(sightings, key=sightings.get)]
                 # A diagonal heading alternates its two cardinal moves.
                 path = islice(cycle([d for d, offset in DIRECTIONS.items() if offset in ((dx, 0), (0, dz))]), 8)
+            elif self.world.paths:
+                path = chain.from_iterable(repeat(*leg) for leg in islice(legs, SPIRAL_LEGS))
             else:
                 # ponytail: when nearer blocks mask every heading this is the O(r²) spiral again; head for the emptiest heading if that stalls.
                 path = repeat(*next(legs))
@@ -121,6 +131,8 @@ class Executor:
                 self.observe()
                 if self.nearest(block) is not None:
                     return True
+            if self.world.paths and not sightings:
+                return False
         return False
 
     def run(self) -> EpisodeResult:
@@ -157,7 +169,8 @@ class Executor:
                 return None if self.world.done else f"no reachable {step.target}"
             if self.world.done:
                 return None
-            transition, _ = self.act(Action(step.action, step.target if step.action == "craft" else None), step)
+            grid = {item: -n for item, n in step.delta.items() if n < 0} if step.action == "craft" else None
+            transition, _ = self.act(Action(step.action, step.target, grid), step)
             if not self.check:
                 continue
             if transition.cls == "exact" and transition.verdict == "mismatch":
