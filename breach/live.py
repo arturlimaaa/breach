@@ -5,19 +5,24 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from time import monotonic, sleep
 
 from .changes import Change, benchmark, write_datapack
 from .evaluate import certified_vanilla
 from .http_world import HttpWorld
+from .induce import induce
 from .log import TransitionLog
 from .loop import run_episode
-from .matrix import run_b
+from .matrix import nemotron, run_b
+from .recover import Induce
 from .reload import ReloadBeforeFirstUse, hr_task
+from .store import RuleStore
 from .tasks import H1, H2, T1, T2, T3
 from .world import Task
 
@@ -69,21 +74,34 @@ def _listing(log: Path, start: int) -> str | None:
     return next((line for line in lines if line.endswith("\n") and "data packs enabled" in line), None)
 
 
-def live(out_dir: Path, url: str, task: Task, system: str, pack: Pack | None = None, prior: Sequence[Path] = ()) -> Path:
+def live(
+    out_dir: Path, url: str, task: Task, system: str, pack: Pack | None = None, prior: Sequence[Path] = (), *,
+    store: Path | None = None, keep_pack: bool = False, induce: Induce | None = None,
+) -> Path:
     """Writes run_jobs' layout, manifest.json and <episode>.jsonl, with the task id as the episode id.
 
-    With a `pack` (HR), the server loads it just before the first step that uses its rule and unloads it when the episode ends.
+    With a `pack` (HR), the server loads it just before the first step that uses its rule and unloads it when the
+    episode ends, unless `keep_pack` leaves it enabled for an HS run on the same server.
     `prior` names earlier runs' logs: certification counts their evidence, and they are never copied into this log.
+    D starts from `store`, an earlier run's store.json on the same server, or else from the certified vanilla rules.
     """
     world = HttpWorld(url, task)
     if pack is not None:
         world = ReloadBeforeFirstUse(world, pack.change, pack.load)
     out_dir.mkdir(parents=True)
     log = TransitionLog(out_dir / f"{task.task_id}.jsonl", prior=prior)
+    if system == "D":
+        # The dashboard reads both beside the manifest, as it does for a matrix job. An earlier run's store is copied, never written.
+        if store is not None:
+            shutil.copyfile(store, out_dir / "store.json")
+        rules = RuleStore(out_dir / "store.json") if store is not None else certified_vanilla(out_dir / "store.json")
+        run = partial(run_episode, induce=induce, status_path=out_dir / "status.json")
+    else:
+        rules, run = certified_vanilla(), SYSTEMS[system]
     try:
-        result = SYSTEMS[system](world, certified_vanilla(), log, task.task_id)
+        result = run(world, rules, log, task.task_id)
     finally:
-        if pack is not None:
+        if pack is not None and not keep_pack:
             pack.unload()
     # ponytail: a copy of run_jobs' entry, since run_jobs builds GridWorlds; the CLI test catches drift, and a world
     # factory on run_jobs would end the copy.
@@ -110,11 +128,16 @@ def main() -> None:
     parser.add_argument("--server-dir", type=Path, help="with --change: the server directory, e.g. adapter/server; its console is the screen session mc")
     parser.add_argument("--system", choices=SYSTEMS, default="D")
     parser.add_argument("--prior", nargs="+", type=Path, default=[], help="earlier runs' <episode>.jsonl logs for certification to replay")
+    parser.add_argument("--store", type=Path, help="D starts from this store.json, e.g. the HR run's, for an HS run on the same server")
+    parser.add_argument("--keep-pack", action="store_true", help="with --change: leave the datapack enabled for the HS run that follows")
+    parser.add_argument("--llm", action="store_true", help="D induces with Nemotron through breach.llm, logging each call to the run directory")
     args = parser.parse_args()
     if args.change and args.server_dir is None:
         parser.error("--change needs --server-dir")
     pack = Pack(changes[args.change], args.server_dir) if args.change else None
-    print(live(args.out_dir, args.url, hr_task(pack.change) if pack else TASKS[args.task], args.system, pack, args.prior))
+    inducer = partial(induce, complete=nemotron(args.out_dir)) if args.llm else None
+    task = hr_task(pack.change) if pack else TASKS[args.task]
+    print(live(args.out_dir, args.url, task, args.system, pack, args.prior, store=args.store, keep_pack=args.keep_pack, induce=inducer))
 
 
 if __name__ == "__main__":
