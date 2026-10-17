@@ -35,9 +35,10 @@ EULA by putting `eula=true` in `server/eula.txt`. Then:
 server/start.sh
 ```
 
-`start.sh` pipes these commands to the server console, which runs them once the world has loaded:
-`gamerule doDaylightCycle false`, `gamerule keepInventory true`, `worldborder center ~ ~` (the world spawn),
-`worldborder set 256`, `difficulty peaceful`. The terminal stays attached to the console for further commands.
+`start.sh` pipes `gamerule doDaylightCycle false`, `gamerule keepInventory true`, and `difficulty peaceful` to the
+server console. The console reads them before the world loads, and a command read then has no world to act on, so
+`worldborder` fails there. The adapter sets the border on each reset instead. The terminal stays attached to the
+console for further commands.
 
 To reset to a saved world: `stop`, replace `server/world` with the saved copy, start the server and the adapter again.
 
@@ -53,27 +54,32 @@ npm start
 | `MC_HOST`, `MC_PORT` | `127.0.0.1`, `25565` | Minecraft server |
 | `MC_USERNAME` | `breach` | Bot name. `ops.json` is written for this name. |
 | `MC_WORLD` | `world` | World name in the `server` field, `mc/<host>:<port>/<world>`. Set it per change world so server-scoped rules stay apart. |
+| `VIEWER_PORT` | unset | When set, serves a third-person 3D view of the bot in the browser at `http://127.0.0.1:<port>`. It listens on all interfaces; prismarine-viewer has no host option. |
 
-The adapter exits when the bot leaves the server.
+The adapter exits when the bot leaves the server. The viewer is prismarine-viewer 1.32.0: 1.33.0 loads the native
+`canvas` package at runtime without declaring it, so it fails to import. The viewer's camera follows the bot only
+once the bot first moves.
 
-`POST /reset` clears the inventory with `/clear`, then fills it with one `/give` per task item. Its response is the
-observation plus `message`, the commands it issued (`"/clear; /give @s oak_planks 4"`), so a run manifest can record
-the start state. Blocks are not restored.
+`POST /reset` centers a 256-block world border on the world spawn, clears the inventory with `/clear`, then fills it
+with one `/give` per task item. Its response is the observation plus `message`, the commands it issued
+(`"/worldborder center 8 -24; /worldborder set 256; /clear; /give @s oak_planks 4"`), so a run manifest can record the
+start state. Blocks are not restored.
 
 Steps over Minecraft:
 
 - `move`: `target` is `north`, `south`, `east`, `west` (one block), or `{"toward": "log"}`, which paths until the
-  nearest visible block of that type is horizontally within 1 block and in line of sight. Paths never dig or place
-  blocks, so moving leaves the inventory alone. Bounded at 20 s.
+  nearest visible block of that type is horizontally within 1 block and within 4.5 blocks of reach. Paths never dig or
+  place blocks, so moving leaves the inventory alone. A failed path stops the bot where it stands. Bounded at 20 s.
 - `look`: changes nothing. Every observation lists the non-air blocks within 8 blocks that have a clear line from the
   bot's eyes, nearest first.
-- `mine`: `target` is a block name. Walks to the nearest visible one (20 s), digs it with the fastest held tool, then
-  waits up to 3 s for the drop. `output` is `{block_removed, collected}`. `block_removed` is read after that wait, so
-  a dig the server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
+- `mine`: `target` is a block name. Walks within reach of the nearest visible one (20 s) and digs it with the fastest
+  held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
+  waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the
+  server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
 - `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
   foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
-  the block there. `output` is its `{x, y, z}`. With no such cell, or when the server refuses, `ok` is false with a
-  message.
+  the block there, and the message gives its position. `output` is the inventory delta, as for `craft`:
+  `{"crafting_table": -1}`. With no such cell, or when the server refuses, `ok` is false with a message.
 - `craft`, `probe`: `grid` is a count map `{"planks": 2}` or rows `[["planks"], ["planks"]]` with `null` for an empty
   cell. A count map whose ingredient multiset matches a vanilla shape in `craft.mjs` takes that shape: planks, stick,
   crafting table, torch, wooden and stone pickaxe, furnace, ladder. Any other count map fills one item per cell, left

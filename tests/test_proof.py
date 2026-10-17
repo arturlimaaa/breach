@@ -44,7 +44,7 @@ LOGS = {
         step("mine", "log", "mine:log", LOG, LOG, "match"),
         step("craft", "planks", "craft:planks", PLANKS, PLANKS, "match"),
         step("craft", "stick", "craft:stick", STICK, STICK_2, "mismatch"),
-        step("craft", "stick", "craft:stick#1", STICK_2, STICK_2, "match"),
+        step("craft", "stick", "craft:stick@grid/stick-count-2#1", STICK_2, STICK_2, "match"),
     ],
     # A look and a move between two mines of the same block do not hide the repeat. It never recovers.
     DROPPED["id"]: [
@@ -76,6 +76,33 @@ TABLE = """\
 | D | HC | 2 | 0% | - | 2 | 1 | 50% | 5 | never | 1 | 1200 |
 | D | T1 | 1 | 100% | 4 | 0 | - | - | - | - | 0 | 0 |
 """
+
+# The contradicting craft completes the goal, so the revision's first use comes in the next episode on that server.
+HELD = {"coal": 1, "stick": 1}
+TORCH_2 = {"coal": -1, "stick": -1, "torch": 2}
+ENDS_ON_IT = {
+    "id": "torch-count-2-hc-s1", "task": "hc", "server": "grid/torch-count-2", "change": "torch-count-2", "seed": 1,
+    "goal": "torch", "count": 1, "inventory": HELD, "success": True, "actions": 1, "reason": "contradiction at craft:torch",
+}
+ELSEWHERE = {
+    "id": "ladder-count-2-hc-s1", "task": "hc", "server": "grid/ladder-count-2", "change": "ladder-count-2", "seed": 1,
+    "goal": "torch", "count": 1, "inventory": HELD, "success": True, "actions": 2, "reason": "goal",
+}
+RETURN = {
+    "id": "torch-count-2-hs-s1", "task": "hs", "server": "grid/torch-count-2", "change": "torch-count-2", "seed": 1,
+    "goal": "torch", "count": 1, "inventory": HELD, "success": False, "actions": 2, "reason": "budget",
+}
+LATER_LOGS = {
+    ENDS_ON_IT["id"]: [step("craft", "torch", "craft:torch", {"coal": -1, "stick": -1, "torch": 4}, TORCH_2, "mismatch")],
+    ELSEWHERE["id"]: [
+        step("craft", "torch", "craft:torch@grid/ladder-count-2#1", TORCH_2, TORCH_2, "match"),
+        step("move", "east", None, {}, {}, "match"),
+    ],
+    RETURN["id"]: [
+        step("move", "east", None, {}, {}, "match"),
+        step("probe", "torch", "craft:torch@grid/torch-count-2#1", {"torch": 2}, {"torch": 2}, "match", test=True),
+    ],
+}
 
 
 def write_run(run_dir: Path, system: str, episodes: list[dict], logs: dict[str, list[dict]], calls: list[dict]) -> Path:
@@ -161,6 +188,17 @@ class ProofTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "t1-s1.*success"):
             proof(self.tmp / "lie")
 
+    def test_a_recovery_test_of_the_same_block_is_no_repeat_and_is_the_recovery(self):
+        retest = {**DROPPED, "id": "stone-drop-nothing-hc-s2", "seed": 2, "actions": 4}
+        logs = {retest["id"]: [
+            step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+            step("look", None, None, {}, {}, "ignored"),
+            step("move", "east", None, {}, {}, "match"),
+            step("mine", "stone", "mine:stone@grid/stone-drop-nothing#1", {}, {}, "match", test=True),
+        ]}
+        [record] = proof(write_run(self.tmp / "retest", "D", [retest], logs, []))["episodes"]
+        self.assertEqual((record["immediate_repeat"], record["recovery_latency"]), (0, 3))
+
     def test_cli_writes_proof_json_and_prints_the_worst_case_row_first(self):
         result = subprocess.run([sys.executable, "-m", "breach.proof", str(self.run_dir)], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(
@@ -175,6 +213,25 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(
             (result.returncode, result.stderr),
             (1, f"breach.proof: no run under {empty}: expected manifest.json and one <episode>.jsonl per episode\n"),
+        )
+
+
+class LaterEpisodeTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.run_dir = write_run(Path(tmp.name) / "run", "D", [ENDS_ON_IT, ELSEWHERE, RETURN], LATER_LOGS, [])
+
+    def test_a_probe_reads_the_output_slot_and_leaves_the_inventory_alone(self):
+        self.assertEqual(
+            {e["id"]: e["success"] for e in proof(self.run_dir)["episodes"]},
+            {ENDS_ON_IT["id"]: True, ELSEWHERE["id"]: True, RETURN["id"]: False},
+        )
+
+    def test_recovery_counts_on_into_the_next_episode_on_the_same_server(self):
+        self.assertEqual(
+            {e["id"]: e["recovery_latency"] for e in proof(self.run_dir)["episodes"]},
+            {ENDS_ON_IT["id"]: 2, ELSEWHERE["id"]: None, RETURN["id"]: None},
         )
 
 

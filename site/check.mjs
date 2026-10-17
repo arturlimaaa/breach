@@ -11,7 +11,8 @@ const FIXTURES = join(SITE, 'fixtures');
 const fixture = async path => JSON.parse(await readFile(join(FIXTURES, path), 'utf8'));
 const codes = html => [...html.matchAll(/<code>([^<]*)<\/code>/g)].map(m => m[1]);
 
-async function render(page, run) {
+// `served` answers a file name with an object instead of reading the run directory.
+async function render(page, run, served = {}) {
   const html = await readFile(join(SITE, page), 'utf8');
   const elements = {}, fetches = [];
   const base = pathToFileURL(join(SITE, page));
@@ -22,8 +23,9 @@ async function render(page, run) {
     document: { getElementById: id => (elements[id] ??= { className: '', innerHTML: '', textContent: '' }) },
     // A missing file answers like http.server's 404: not ok, and a body that is not JSON.
     fetch: url => {
-      const response = readFile(new URL(url, base), 'utf8').catch(() => '')
-        .then(text => ({ ok: text !== '', json: async () => JSON.parse(text) }));
+      const name = url.split('/').pop();
+      const text = name in served ? Promise.resolve(JSON.stringify(served[name])) : readFile(new URL(url, base), 'utf8').catch(() => '');
+      const response = text.then(text => ({ ok: text !== '', json: async () => JSON.parse(text) }));
       fetches.push(response);
       return response;
     },
@@ -47,32 +49,56 @@ test('every fixture parses', async () => {
 
 const tableRows = html => [...html.matchAll(/<tr class="([^"]*)">(.*?)<\/tr>/g)]
   .map(([, cls, cells]) => [cls, ...[...cells.matchAll(/<td>([^<]*)<\/td>/g)].map(m => m[1])]);
-const resultTables = async () => (await render('index.html', '../site/fixtures')).results.innerHTML.split('<h3>Episodes').map(tableRows);
+const results = async (served = {}) => {
+  const html = (await render('index.html', '../site/fixtures', served)).results.innerHTML;
+  const [headline, episodes] = html.split('<h3>Episodes').map(tableRows);
+  const lines = [...(html.match(/<ul>(.*?)<\/ul>/)?.[1] ?? '').matchAll(/<li>(.*?)<\/li>/g)].map(m => m[1].replace(/<[^>]*>/g, ''));
+  return { headline, lines, episodes };
+};
 
-test('the headline table leads with each worst row, then the means, then each aggregate', async () => {
-  const [headline] = await resultTables();
-  assert.deepEqual(headline, [
-    ['worst', 'B', 'worst', '5', '0%', '73', '5', '54', '100%', '–', 'never', '0', '0'],
-    ['worst', 'D', 'worst', '10', '100%', '60', '5', '0', '0%', '11', '21', '2', '5130'],
-    ['', 'B', 'HC', '5', '40%', '64', '5', '29.8', '20%', '–', 'never', '0', '0'],
-    ['', 'D', 'HC', '5', '100%', '37.2', '5', '0', '0%', '11', '21', '1.2', '2863.2'],
-    ['', 'D', 'HS', '5', '100%', '28.8', '0', '–', '–', '–', '–', '0', '0'],
-    ['aggregate', 'B', 'all', '5', '40%', '64', '5', '29.8', '20%', '–', 'never', '0', '0'],
-    ['aggregate', 'D', 'all', '10', '100%', '33', '5', '0', '0%', '11', '21', '0.6', '1431.6'],
+test('the headline table puts each worst row first, then each system\'s means with its aggregate last', async () => {
+  const { headline } = await results();
+  assert.deepEqual(headline.map(r => r.slice(0, 3)), [
+    ['worst', 'B', 'worst'], ['worst', 'D', 'worst'],
+    ['', 'B', 'HC'], ['aggregate', 'B', 'all'],
+    ['', 'D', 'HC'], ['', 'D', 'HS'], ['aggregate', 'D', 'all'],
   ]);
 });
 
 test('the episode table lists each system\'s worst case first, then every other episode once', async () => {
   const proof = await fixture('proof.json');
-  const [, rows] = await resultTables();
+  const { episodes } = await results();
+  const worst = Object.entries(proof.worst_case).filter(([, w]) => w.episode).map(([system, w]) => ['worst-case', system, w.episode]);
   assert.deepEqual(
-    { first: rows.slice(0, 2).map(r => r.slice(0, 3)), marked: rows.slice(2).filter(r => r[0]).length, all: rows.map(r => `${r[1]}/${r[2]}`).sort() },
-    {
-      first: [['worst-case', 'B', 'crafting_table-swap-planks-log-hc-s1'], ['worst-case', 'D', 'stone_pickaxe-swap-cobblestone-log-hc-s1']],
-      marked: 0,
-      all: proof.episodes.map(e => `${e.system}/${e.id}`).sort(),
-    },
+    { first: episodes.slice(0, worst.length).map(r => r.slice(0, 3)), marked: episodes.slice(worst.length).filter(r => r[0]).length, all: episodes.map(r => `${r[1]}/${r[2]}`).sort() },
+    { first: worst, marked: 0, all: proof.episodes.map(e => `${e.system}/${e.id}`).sort() },
   );
+});
+
+test('results format numbers as breach.proof does and give one worst-case line per system', async () => {
+  const proof = {
+    episodes: [
+      { system: 'B', id: 'b-hc-s1', success: true, actions: 20, contradictions: 2, actions_after_contradiction: 1, immediate_repeat: 1, recovery_latency: null, text_model_calls: 0, tokens: 0 },
+      { system: 'D', id: 'd-hc-s1', success: true, actions: 30, contradictions: 1, actions_after_contradiction: 0, immediate_repeat: 0, recovery_latency: 7, text_model_calls: 1, tokens: 1500 },
+    ],
+    rows: [
+      { system: 'B', set: 'worst', episodes: 1, success: 1, actions_per_success: 20, contradicted: 1, actions_after_contradiction: 1, immediate_repeat: 1, recovery_latency_mean: null, recovery_latency_worst: null, unrecovered: 1, text_model_calls: 0, tokens: 0 },
+      { system: 'D', set: 'HC', episodes: 2, success: 0.5, actions_per_success: 30, contradicted: 1, actions_after_contradiction: 0, immediate_repeat: 0, recovery_latency_mean: 7.5, recovery_latency_worst: 7, unrecovered: 0, text_model_calls: 0.5, tokens: 750 },
+    ],
+    worst_case: { A: { episode: null, recovery_latency: null }, B: { episode: 'b-hc-s1', recovery_latency: null }, D: { episode: 'd-hc-s1', recovery_latency: 7 } },
+    aggregate: {},
+  };
+  assert.deepEqual(await results({ 'proof.json': proof }), {
+    headline: [
+      ['worst', 'B', 'worst', '1', '100%', '20', '1', '1', '100%', '–', 'never', '0', '0'],
+      ['', 'D', 'HC', '2', '50%', '30', '1', '0', '0%', '7.5', '7', '0.5', '750'],
+    ],
+    lines: ['A: no contradiction.', 'B: worst case b-hc-s1, never recovered.', 'D: worst case d-hc-s1, recovered after 7 actions.'],
+    episodes: [
+      ['worst-case', 'B', 'b-hc-s1', 'yes', '20', '2', '1', '1', 'never', '0', '0'],
+      ['worst-case', 'D', 'd-hc-s1', 'yes', '30', '1', '0', '0', '7', '1', '1500'],
+    ],
+  });
 });
 
 test('a demoted or recertified rule shows its predecessor before it', async () => {

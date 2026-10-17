@@ -42,12 +42,14 @@ While a rule is `demoted`, `revising` or `recertified`, `rule.rule_id` names the
 
 ### proof.json
 
-Written by `python3 -m breach.proof runs/<run>`. Top-level keys:
+Written by `python3 -m breach.proof runs/<run>`, one file for every system in the run. Top-level keys:
 
-- `rows`: summary rows as `breach.proof.rows` builds them, rendered in order as the headline table: each system's `worst` row, then its mean row per task set. Fields: `system`, `set`, `episodes`, `success`, `actions_per_success`, `contradicted`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency_mean`, `recovery_latency_worst`, `unrecovered`, `text_model_calls`, `tokens`.
-- `aggregate`: keyed by system, one summary row over all of that system's episodes, shown under `rows` as set `all`.
+- `rows`: summary rows as `breach.proof.rows` builds them. Fields: `system`, `set`, `episodes`, `success`, `actions_per_success`, `contradicted`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency_mean`, `recovery_latency_worst`, `unrecovered`, `text_model_calls`, `tokens`.
+- `aggregate`: keyed by system, a row of the same fields with `set` `all`, over every episode of that system.
+- `worst_case`: keyed by system, `{episode, recovery_latency}`. `episode` is `null` when the system had no contradiction. A `null` latency with an episode means it never recovered, which ranks worst.
 - `episodes`: one object per episode with `system`, `id`, `success`, `actions`, `contradictions`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency`, `text_model_calls`, `tokens`. The table leaves out `task`, `seed`, `server` and `change`, which the id already names.
-- `worst_case`: keyed by system, `{episode, recovery_latency}`. Systems share episode ids, so the row that leads the episode table matches on both system and id.
+
+The headline table shows the `worst` rows first, one per system, then each system's mean rows with its `all` row last. One line per system follows: its worst-case episode and recovery, "never recovered", or "no contradiction". The episode table puts each system's worst-case episode first. Systems share episode ids, so that match is on system and id.
 
 `success` and `immediate_repeat` in summary rows are fractions in [0, 1] and show as percentages. A `null` metric shows as a dash. An episode with a contradiction and a `null` recovery latency shows `never`, and so does a summary row with `unrecovered` above zero, as in `breach.proof`'s table.
 
@@ -59,4 +61,4 @@ The rule store file as `RuleStore` writes it: a JSON list of `Rule.to_dict()`. T
 
 The status and store fixtures show a stone pickaxe episode on a server where a stick craft yields 2, not 4. Step numbers, plans and evidence lists come from the grid executor on seed 1, with training on T1 to T3 over seeds 1 and 2. The recovery is hand-written: the probe step, the revised rule's `source` and evidence, and the Nemotron latency.
 
-`proof.json` comes from `python3 -m breach.matrix` on five changes, seed 1. B's episodes are as measured. D's HC episodes are measured up to the first contradiction; their recovery, and every D HS episode, is hand-written, because D does not recover yet. `rows` is recomputed by `breach.proof.rows`. `worst_case` and `aggregate` follow the shape the proof lane was asked for; a null latency ranks worst.
+`proof.json` is the unedited output of `python3 -m breach.matrix runs/site-fixture --seeds 1 --systems B D`: every benchmarked change, systems B and D. D does not recover from a contradiction yet, so neither system's worst case recovers. `check.mjs` serves a small in-memory `proof.json` to cover the recovered and no-contradiction cases.

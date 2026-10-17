@@ -22,15 +22,22 @@ const summary = (r, cls) => tr(cls, SUMMARY.map(k => k === 'success' || k === 'i
   : k === 'recovery_latency_worst' && r.unrecovered ? 'never' : r[k]));
 const episode = (e, cls) => tr(cls, EPISODE.map(k => k === 'recovery_latency' && e.contradictions && e[k] == null ? 'never' : e[k]));
 
+const recovery = w => w.episode == null ? 'no contradiction' : `worst case <code>${esc(w.episode)}</code>, ${w.recovery_latency == null
+  ? 'never recovered' : `recovered after ${num(w.recovery_latency)} action${w.recovery_latency === 1 ? '' : 's'}`}`;
+
 function results(p) {
-  const eps = p.episodes || [], worst = p.worst_case || {};
+  const eps = p.episodes || [], rows = p.rows || [], worst = p.worst_case || {}, aggregate = p.aggregate || {};
+  // Systems share episode ids, so a worst case is a (system, id) pair.
   const isWorst = e => worst[e.system]?.episode === e.id;
-  const summaries = [...(p.rows || []).map(r => summary(r, r.set === 'worst' ? 'worst' : '')),
-    ...Object.entries(p.aggregate || {}).map(([system, a]) => summary({ system, set: 'all', ...a }, 'aggregate'))];
+  const systems = [...new Set([...rows.map(r => r.system), ...Object.keys(aggregate)])];
+  const summaries = [...rows.filter(r => r.set === 'worst').map(r => summary(r, 'worst')),
+    ...systems.flatMap(s => [...rows.filter(r => r.system === s && r.set !== 'worst').map(r => summary(r, '')),
+      ...(aggregate[s] ? [summary({ system: s, set: 'all', ...aggregate[s] }, 'aggregate')] : [])])];
   const gaps = ['rows', 'worst_case', 'aggregate'].filter(k => !p[k]);
-  return `<p>Worst rows first, then means by task set; <code>all</code> is each system's aggregate.
+  return `<p>Worst rows first, then each system's means by task set, with <code>all</code> over every episode.
 ${gaps.length ? `<span class="missing">proof.json has no ${gaps.join(', ')}.</span>` : ''}</p>
 ${table(SUMMARY, summaries)}
+<ul>${Object.entries(worst).map(([s, w]) => `<li><code>${esc(s)}</code>: ${recovery(w)}.</li>`).join('')}</ul>
 <h3>Episodes (${eps.length}), each system's worst case first</h3>
 ${table(EPISODE, [...eps.filter(isWorst).map(e => episode(e, 'worst-case')), ...eps.filter(e => !isWorst(e)).map(e => episode(e, ''))])}`;
 }

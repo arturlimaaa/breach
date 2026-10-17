@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 import sys
@@ -7,13 +8,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from breach.baseline_b import run_episode_b, vanilla_plan
-from breach.evaluate import certified_vanilla
+from breach.evaluate import certified_vanilla, run_jobs
 from breach.http_world import HttpWorld, parse
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.proof import proof
 from breach.tasks import T1
-from breach.world import Action, GridWorld, Task
+from breach.world import VANILLA, Action, GridWorld, Task
 from tests.fake_adapter import serve
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,7 +72,10 @@ class HttpWorldTests(unittest.TestCase):
 
     def test_steps_return_the_grid_results(self):
         task = replace(T1, inventory={"planks": 2})
-        actions = [Action("move", "east"), Action("probe", "stick", grid={"planks": 2}), Action("look"), Action("mine")]
+        actions = [
+            Action("move", "east"), Action("probe", "stick", grid={"planks": 2}), Action("look"), Action("mine"),
+            Action("place", "crafting_table"),
+        ]
         http, grid = HttpWorld(self.adapter(), task), GridWorld(task, seed=1)
         self.assertEqual([http.step(a) for a in actions], [grid.step(a) for a in actions])
 
@@ -106,9 +110,9 @@ class HttpWorldTests(unittest.TestCase):
         world = HttpWorld(self.adapter(), replace(T1, inventory={"planks": 4}))
         self.assertEqual(world.reset_message, "/clear; /give @s planks 4")
 
-    def test_server_is_the_adapters_unless_relabeled(self):
-        url = self.adapter()
-        self.assertEqual([HttpWorld(url, T1).server, HttpWorld(url, T1, "mc/x").observe().server], ["grid/vanilla", "mc/x"])
+    def test_server_is_the_adapters_label(self):
+        url = self.adapter(lambda task: GridWorld(task, seed=1, server="grid/stick-count-2"))
+        self.assertEqual(HttpWorld(url, T1).server, "grid/stick-count-2")
 
     def test_an_adapter_error_names_the_url_and_the_status(self):
         url = self.adapter() + "/nowhere"
@@ -186,15 +190,18 @@ class HttpWorldTests(unittest.TestCase):
         http = run_episode_b(HttpWorld(self.adapter(), T1), http_log, "t1", vanilla_plan)
         self.assertEqual((http.reason, http, hashless(http_log)), ("goal", grid, hashless(grid_log)))
 
-    def test_cli_writes_a_run_the_proof_reads(self):
+    def test_cli_writes_run_jobs_manifest_entry_and_the_proof_accepts_it(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run = Path(tmp) / "run"
+            run, grid = Path(tmp) / "run", Path(tmp) / "grid"
             cli = [sys.executable, "-m", "breach.live", str(run), "--url", self.adapter(), "--task", "T1"]
             subprocess.run(cli, cwd=ROOT, check=True, capture_output=True)
-            [episode] = proof(run)["episodes"]
+            run_jobs(run_episode, [(T1, 1, "grid/vanilla", VANILLA, None)], certified_vanilla, grid, name="D")
+            [entry], [grid_entry] = (json.loads((d / "manifest.json").read_text())["episodes"] for d in (run, grid))
+            [proven] = proof(run)["episodes"]
+        # The adapter paths, so the live episode takes one move per mine: 12 actions where the grid takes 19.
         self.assertEqual(
-            {k: episode[k] for k in ("system", "id", "task", "reset", "success", "reason", "contradictions")},
-            {"system": "D", "id": "t1", "task": "t1", "reset": "/clear", "success": True, "reason": "goal", "contradictions": 0},
+            (entry, proven["system"], proven["contradictions"]),
+            (grid_entry | {"id": "t1", "seed": None, "reset": "/clear", "actions": 12}, "D", 0),
         )
 
 
