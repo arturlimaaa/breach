@@ -1,0 +1,148 @@
+"""Claim metrics from a run directory: per-episode numbers from the transition logs, then the results table."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import fields
+from pathlib import Path
+from statistics import fmean
+
+from .log import Transition, TransitionLog
+
+
+def _jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line] if path.exists() else []
+
+
+def read_log(path: Path) -> TransitionLog:
+    """An episode's transitions, ignoring fields a system logs beyond the Transition record."""
+    names = {f.name for f in fields(Transition)}
+    log = TransitionLog()
+    for data in _jsonl(path):
+        log.append(Transition(**{k: v for k, v in data.items() if k in names}))
+    return log
+
+
+def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict]) -> dict:
+    """The manifest entry plus what the log says about the first contradiction and the text-model cost."""
+    if len(log) != entry["actions"]:
+        raise ValueError(f"episode {entry['id']}: {len(log)} logged transitions for {entry['actions']} actions; the log must have one line per action")
+    hits = log.contradictions()
+    record = {
+        **entry, "system": system, "contradictions": len(hits), "actions_after_contradiction": None,
+        "immediate_repeat": None, "recovery_latency": None, "text_model_calls": len(calls),
+        "tokens": sum(c["tokens_in"] + c["tokens_out"] for c in calls),
+    }
+    if not hits:
+        return record
+    first = hits[0]
+    steps = list(log)
+    rest = steps[steps.index(first) + 1:]
+
+    def same(t: Transition) -> bool:
+        return (t.action, t.target) == (first.action, first.target)
+
+    return record | {
+        "actions_after_contradiction": sum(t.action != "move" and t.rule_id == first.rule_id for t in rest),
+        "immediate_repeat": int(bool(rest) and same(rest[0])),
+        "recovery_latency": next((n for n, t in enumerate(rest, 1) if same(t) and t.verdict == "match"), None),
+    }
+
+
+def summarize(system: str, label: str, episodes: list[dict], worst: bool = False) -> dict:
+    """One table row: means over `episodes`, or each column's worst episode when `worst`. Recovery always gives both."""
+    pick = max if worst else fmean
+    hit = [e for e in episodes if e["contradictions"]]
+    wins = [e["actions"] for e in episodes if e["success"]]
+    recovered = [e["recovery_latency"] for e in hit if e["recovery_latency"] is not None]
+    return {
+        "system": system,
+        "set": label,
+        "episodes": len(episodes),
+        "success": (min if worst else fmean)([float(e["success"]) for e in episodes]),
+        "actions_per_success": pick(wins) if wins else None,
+        "contradicted": len(hit),
+        "actions_after_contradiction": pick([e["actions_after_contradiction"] for e in hit]) if hit else None,
+        "immediate_repeat": pick([e["immediate_repeat"] for e in hit]) if hit else None,
+        "recovery_latency_mean": fmean(recovered) if recovered else None,
+        "recovery_latency_worst": max(recovered, default=None),
+        "unrecovered": len(hit) - len(recovered),
+        "text_model_calls": pick([e["text_model_calls"] for e in episodes]),
+        "tokens": pick([e["tokens"] for e in episodes]),
+    }
+
+
+def rows(episodes: list[dict]) -> list[dict]:
+    """The worst-case row of each system first, then one row per system and task set."""
+    systems = sorted({e["system"] for e in episodes})
+    groups = sorted(dict.fromkeys((e["system"], e["task"].upper()) for e in episodes), key=lambda key: key[0])
+    return [summarize(s, "worst", [e for e in episodes if e["system"] == s], worst=True) for s in systems] + [
+        summarize(s, label, [e for e in episodes if (e["system"], e["task"].upper()) == (s, label)]) for s, label in groups
+    ]
+
+
+def read_run(run_dir: Path) -> list[dict]:
+    """Measured episodes of the one system whose manifest.json sits in `run_dir`."""
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    calls = _jsonl(run_dir / "model_calls.jsonl")
+    return [
+        measure(entry, manifest["system"], read_log(run_dir / f"{entry['id']}.jsonl"), [c for c in calls if c["episode"] == entry["id"]])
+        for entry in manifest["episodes"]
+    ]
+
+
+def proof(run_dir: Path) -> dict:
+    """Metrics of every run under `run_dir`, one manifest per system and run."""
+    manifests = sorted(run_dir.rglob("manifest.json"))
+    if not manifests:
+        raise ValueError(f"no run under {run_dir}: expected manifest.json and one <episode>.jsonl per episode")
+    episodes = [e for manifest in manifests for e in read_run(manifest.parent)]
+    result = {"episodes": episodes, "rows": rows(episodes)}
+    (run_dir / "proof.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
+HEADER = (
+    "system", "set", "episodes", "success", "actions/success", "contradicted", "after contradiction",
+    "immediate repeat", "recovery mean", "recovery worst", "model calls/episode", "tokens/episode",
+)
+
+
+def _num(x: float | None) -> str:
+    return "-" if x is None else f"{x:.1f}".removesuffix(".0")
+
+
+def _pct(x: float | None) -> str:
+    return "-" if x is None else f"{x:.0%}"
+
+
+def _line(cells) -> str:
+    return "| " + " | ".join(map(str, cells)) + " |"
+
+
+def table(rows: list[dict]) -> str:
+    lines = [_line(HEADER), _line(["---"] * len(HEADER))]
+    for r in rows:
+        worst = "never" if r["unrecovered"] else _num(r["recovery_latency_worst"])
+        lines.append(_line([
+            r["system"], r["set"], r["episodes"], _pct(r["success"]), _num(r["actions_per_success"]), r["contradicted"],
+            _num(r["actions_after_contradiction"]), _pct(r["immediate_repeat"]), _num(r["recovery_latency_mean"]), worst,
+            _num(r["text_model_calls"]), _num(r["tokens"]),
+        ]))
+    return "\n".join(lines)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="python3 -m breach.proof", description="Write proof.json for a run directory and print the results table.")
+    parser.add_argument("run_dir", type=Path)
+    run_dir = parser.parse_args().run_dir
+    try:
+        result = proof(run_dir)
+    except ValueError as err:
+        raise SystemExit(f"breach.proof: {err}")
+    print(table(result["rows"]))
+
+
+if __name__ == "__main__":
+    main()
