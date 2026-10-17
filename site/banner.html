@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Breach banner</title>
+<style>
+  html, body { margin: 0; background: transparent; }
+  body {
+    padding: 16px 24px;
+    color: #f4f4f5;
+    font: 700 20px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    text-shadow: 0 0 2px #000, 0 0 4px #000, 1px 2px 3px #000;
+  }
+  #head { position: absolute; top: 16px; right: 24px; }
+  .certified, .recertified { color: #4ade80; }
+  .demoted { color: #f87171; }
+  .revising, .hypothesis { color: #fbbf24; }
+</style>
+<div id="head"></div>
+<div id="plan"></div>
+<div id="action"></div>
+<div id="rule"></div>
+<script>
+const run = new URLSearchParams(location.search).get('run') || 'latest';
+const url = `../runs/${run}/status.json`;
+const $ = id => document.getElementById(id);
+const delta = d => Object.entries(d).sort(([, a], [, b]) => a - b).map(([k, n]) => `${k} ${n > 0 ? '+' : ''}${n}`).join(', ');
+
+function ruleText(r, last, model) {
+  const p = last.predicted || {}, o = last.observed || {};
+  if (r.status === 'demoted') {
+    const keys = [...new Set([...Object.keys(p), ...Object.keys(o)])].filter(k => (p[k] || 0) !== (o[k] || 0));
+    const only = d => delta(Object.fromEntries(keys.map(k => [k, d[k] || 0])));
+    return ` → predicted ${only(p)}, observed ${only(o)} → demoted`;
+  }
+  if (r.status === 'revising') {
+    const seconds = model.last_latency_ms == null ? '…' : (model.last_latency_ms / 1000).toFixed(1);
+    return ` → revising (Nemotron, ${seconds} s)`;
+  }
+  const mark = r.status === 'certified' || r.status === 'recertified' ? '✓ ' : '';
+  return `${delta(p) ? ` → ${delta(p)}` : ''} ${mark}${r.status ?? ''} (${r.evidence ?? 0})`;
+}
+
+function render(s) {
+  const t = Date.parse(s.updated) - Date.parse(s.started);
+  // ponytail: the ISO slice wraps after an hour; a run that long needs an hours field.
+  const clock = t >= 0 ? new Date(t).toISOString().slice(14, 23) : '--:--.---';
+  $('head').textContent = `BREACH + NEMOTRON | ${clock} | step ${s.step ?? '-'}/${s.budget ?? '-'}`;
+  const now = (s.plan || []).find(p => p.status === 'current');
+  $('plan').textContent = `PLAN: ${s.goal ?? '-'}${now ? `, now ${now.action} ${now.target ?? ''}` : ''}`;
+  const last = s.last || {}, r = s.rule || {};
+  const verdict = last.verdict && last.verdict !== 'match' ? ` (${last.verdict})` : '';
+  $('action').textContent = `ACTION: ${last.action ?? '-'} ${last.target ?? ''}${verdict}`;
+  $('rule').className = r.status || '';
+  $('rule').textContent = r.rule_id ? `RULE: ${r.rule_id}${ruleText(r, last, s.model || {})}` : 'RULE: -';
+}
+
+// A missing or half-written file keeps the last frame on screen.
+const poll = () => fetch(url, { cache: 'no-store' }).then(r => r.json()).then(render).catch(() => {});
+$('plan').textContent = `waiting for ${url}`;
+poll();
+setInterval(poll, 250);
+</script>
+</html>
