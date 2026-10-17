@@ -161,9 +161,11 @@ export class MineflayerWorld {
 
   async #mine (target) {
     const { bot } = this
+    // The tool is chosen, or the mine refused, before any walking. Blocks of one generic name share their harvest tools.
+    const sample = this.#inSight().find(block => normalize(block.name) === target)
+    const tool = sample ? this.#tool(sample) : null
     const block = await this.#approach(target, `to ${target}`, this.#approached)
     this.#approached = null
-    const tool = bot.pathfinder.bestHarvestTool(block)
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
     this.#executed = true
@@ -174,9 +176,21 @@ export class MineflayerWorld {
     const removed = now !== null && normalize(now.name) !== target
     return {
       ok: removed,
-      message: removed ? `mined ${target}` : `${target} is still there`,
-      output: { block_removed: removed, collected: diff(before, this.inventory()) }
+      message: removed ? `mined ${target}${tool ? ` with ${tool.name}` : ''}` : `${target} is still there`,
+      output: { block_removed: removed, collected: diff(before, this.inventory()), ...(tool && { tool: tool.name }) }
     }
+  }
+
+  // The fastest held item that harvests `block`, or null when bare hands are as fast. Stone dug without a pickaxe drops
+  // nothing, which would read as a changed drop rule, so a block that needs a tool none of the held items is refuses.
+  #tool (block) {
+    const time = item => block.digTime(item?.type ?? null, false, false, false)
+    const fastest = (best, item) => time(item) < time(best) ? item : best
+    const held = this.bot.inventory.items()
+    if (!block.harvestTools) return held.reduce(fastest, null)
+    const harvesters = held.filter(item => block.harvestTools[item.type])
+    if (!harvesters.length) throw new Error(`no held tool harvests ${normalize(block.name)}`)
+    return harvesters.reduce(fastest)
   }
 
   // A drop that rolls more than about 1.4 blocks from the bot is not picked up where it stands, so walk onto it.
