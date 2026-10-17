@@ -65,6 +65,19 @@ class CompleteTests(unittest.TestCase):
             ),
         )
 
+    def test_crusoe_switches_thinking_through_chat_template_kwargs_alone(self):
+        sent = []
+        for thinking in (False, True):
+            complete(MESSAGES, thinking=thinking, transport=fake(sent), env={**KEY, **CRUSOE}, episode="hc", step=7, purpose="induce")
+        super_ = {"model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "messages": MESSAGES, **SAMPLING}
+        self.assertEqual(
+            [body for _, _, body in sent],
+            [
+                {**super_, "temperature": 0.95, "max_tokens": 4096, "chat_template_kwargs": {"enable_thinking": False}},
+                {**super_, "temperature": 1.0, "max_tokens": 4096 + 2048, "chat_template_kwargs": {"enable_thinking": True}},
+            ],
+        )
+
     def test_thinking_on_nvidia_sends_a_top_level_budget_beside_the_schema(self):
         sent = []
         complete(

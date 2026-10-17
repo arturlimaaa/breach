@@ -91,7 +91,6 @@ def matrix(
     if "D" in systems:
         for (c, goal), s in product(pairs, seeds):
             run_dir = out_dir / "D" / f"{c.id}-s{s}"
-            # One status writer per job, so `started` stays at the job's start across its HC and HS episodes.
             system = partial(run_episode, induce=inducer_for(c, run_dir, llm, inducer), status_path=run_dir / "status.json")
             point_latest(run_dir, out_dir.parent)
             store = partial(certified_vanilla, run_dir / "store.json")
