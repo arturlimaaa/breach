@@ -49,15 +49,19 @@ class CompleteTests(unittest.TestCase):
             )],
         )
 
-    def test_crusoe_gets_its_model_id_and_nvidia_style_thinking(self):
+    def test_crusoe_defaults_to_super_and_takes_another_id_from_breach_llm_model(self):
         sent = []
-        complete(MESSAGES, transport=fake(sent), env={**KEY, **CRUSOE}, episode="t1", step=3, purpose="plan")
-        url, headers, body = sent[0]
+        env = {**KEY, **CRUSOE}
+        complete(MESSAGES, transport=fake(sent), env=env, episode="t1", step=3, purpose="plan")
+        nano = {**env, "BREACH_LLM_MODEL": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"}
+        complete(MESSAGES, transport=fake(sent), env=nano, episode="t1", step=4, purpose="plan")
+        (url, headers, body), (_, _, override) = sent
         self.assertEqual(
-            (url, headers["Authorization"], body["model"], body["chat_template_kwargs"]),
+            (url, headers["Authorization"], body["model"], body["chat_template_kwargs"], override["model"]),
             (
                 "https://api.inference.crusoecloud.com/v1/chat/completions", "Bearer test-key",
                 "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", {"enable_thinking": False},
+                "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
             ),
         )
 

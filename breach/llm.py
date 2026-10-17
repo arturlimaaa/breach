@@ -1,8 +1,10 @@
 """OpenAI-compatible chat completions for Nemotron.
 
 Crusoe Managed Inference is the primary endpoint: set BREACH_LLM_BASE_URL=https://api.inference.crusoecloud.com/v1
-and its key in BREACH_LLM_API_KEY. build.nvidia.com is the default base URL and the fallback. A local Ollama at
-http://localhost:11434/v1 serves nemotron-3-nano:4b without a key.
+and its key in BREACH_LLM_API_KEY. There BREACH_LLM_MODEL defaults to nvidia/NVIDIA-Nemotron-3-Super-120B-A12B;
+the other tiers are nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B and nvidia/Nemotron-3.5-Lightning-30B-A3B.
+build.nvidia.com is the default base URL and the fallback. A local Ollama at http://localhost:11434/v1
+serves nemotron-3-nano:4b without a key.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 _OLLAMA = {"model": "nemotron-3-nano:4b", "key": False, "thinking": "reasoning_effort"}
 # What differs per endpoint. An unknown base URL is treated like NVIDIA's.
 PROVIDERS: dict[str, dict[str, Any]] = {
-    # Crusoe's docs and ai-sdk.dev disagree on this id: confirm it with list_models() before a run.
+    # The id is Crusoe's catalog slug, not yet confirmed live: check list_models() once a key exists.
     "https://api.inference.crusoecloud.com/v1": {"model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "key": True, "thinking": "chat_template_kwargs"},
     DEFAULT_BASE_URL: {"model": DEFAULT_MODEL, "key": True, "thinking": "chat_template_kwargs"},
     "http://localhost:11434/v1": _OLLAMA,
