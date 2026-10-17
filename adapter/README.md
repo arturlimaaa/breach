@@ -67,8 +67,8 @@ npm start
 | `VIEWER_PORT` | unset | When set, serves a third-person 3D view of the bot in the browser at `http://127.0.0.1:<port>`. It listens on all interfaces; prismarine-viewer has no host option. |
 
 Each `/reset` and `/step` prints one JSON line to stdout, so a run the core drives can be read from the adapter's
-output: `time`, `action`, `target`, `grid` (crafts and probes), `ok`, `message`, `output`, `events` (when any), and
-`at`, the bot's position afterwards.
+output: `time`, `action`, `target`, `grid` (crafts and probes), `ok`, `message`, `output`, `events` (when any),
+`executed` (steps), and `at`, the bot's position afterwards.
 
 The adapter exits when the bot leaves the server. The viewer is prismarine-viewer 1.32.0: 1.33.0 loads the native
 `canvas` package at runtime without declaring it, so it fails to import. The viewer's camera follows the bot only
@@ -109,6 +109,11 @@ Steps over Minecraft:
   `probe` reports the result slot, `{}` when empty, and puts everything back.
 - `events` lists `death`, `damage` (the bot was hurt), and `kicked` seen during the step.
 - Every step is bounded at 60 s. A timeout or an error inside the step is `ok: false` with a message.
+- Every step reply carries `executed`. It is `false` only when the adapter refused the step before the world evaluated
+  it. The refusals are: no block of that type in sight, no path, no crafting table within reach for a 3x3 craft or
+  probe, nothing held to place, no spot to place it, ingredients not held, an unknown action, and a spent budget. It
+  is `true` whenever the world evaluated the step, even with `ok: false`: a craft whose output slot came back empty,
+  or a dig or placement the server refused. A step that times out reports whether it got that far.
 - Steps go on after the goal is reached, so recovery can still act; `done` and `success` report as before. Only a
   spent budget refuses a step, with `ok: false` and `"episode is over"`, without counting it.
 

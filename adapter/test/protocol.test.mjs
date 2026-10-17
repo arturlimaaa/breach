@@ -91,7 +91,7 @@ test('craft lays a vanilla multiset in its shape and reports the delta both side
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {
-      result: { ok: true, message: 'crafted 4 stick', output: { planks: -2, stick: 4 }, events: [] },
+      result: { ok: true, message: 'crafted 4 stick', output: { planks: -2, stick: 4 }, events: [], executed: true },
       client: { planks: 1, stick: 4 },
       server: { counts: { planks: 1, stick: 4 }, grid: 0, carried: null }
     }
@@ -101,7 +101,7 @@ test('craft lays a vanilla multiset in its shape and reports the delta both side
 test('craft under a changed count reports the changed count', async (t) => {
   const { world } = await session(t, [[36, 'oak_planks', 2]], sticks(2))
   const result = await world.act({ action: 'craft', target: 'stick', grid: { planks: 2 } })
-  assert.deepEqual(result, { ok: true, message: 'crafted 2 stick', output: { planks: -2, stick: 2 }, events: [] })
+  assert.deepEqual(result, { ok: true, message: 'crafted 2 stick', output: { planks: -2, stick: 2 }, events: [], executed: true })
 })
 
 test('probe reads the result slot and puts every ingredient back', async (t) => {
@@ -110,7 +110,7 @@ test('probe reads the result slot and puts every ingredient back', async (t) => 
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {
-      result: { ok: true, message: 'output slot shows 4 stick', output: { stick: 4 }, events: [] },
+      result: { ok: true, message: 'output slot shows 4 stick', output: { stick: 4 }, events: [], executed: true },
       client: { planks: 3 },
       server: { counts: { planks: 3 }, grid: 0, carried: null }
     }
@@ -136,9 +136,19 @@ test('a grid with no result fails the craft and puts the ingredients back', asyn
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {
-      result: { ok: false, message: 'output slot empty', output: {}, events: [] },
+      result: { ok: false, message: 'output slot empty', output: {}, events: [], executed: true },
       client: { planks: 3 },
       server: { counts: { planks: 3 }, grid: 0, carried: null }
     }
   )
+})
+
+test('a craft short of ingredients, or a 3x3 craft with no table in reach, is refused without executing', async (t) => {
+  const { world } = await session(t, [[36, 'oak_planks', 3], [37, 'stick', 2]], sticks(4))
+  const short = await world.act({ action: 'craft', target: 'stick', grid: { planks: 4 } })
+  const tableless = await world.act({ action: 'craft', target: 'wooden_pickaxe', grid: { planks: 3, stick: 2 } })
+  assert.deepEqual({ short, tableless }, {
+    short: { ok: false, message: 'missing {"planks":1}', output: null, events: [], executed: false },
+    tableless: { ok: false, message: 'craft: no crafting table within 16 blocks', output: null, events: [], executed: false }
+  })
 })
