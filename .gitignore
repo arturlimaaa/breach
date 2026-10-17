@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+runs/
+adapter/node_modules/
+adapter/server/
+.playwright-mcp/
