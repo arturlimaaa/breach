@@ -15,19 +15,20 @@ const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -
 // cave_air, so buried stone and cave walls stay out.
 export const touchesAir = (nameAt, x, y, z) => FACES.some(([fx, fy, fz]) => nameAt(x + fx, y + fy, z + fz) === 'air')
 
-// Per heading, the nearest known block as {block, distance}; headings that show none are left out. `nameAt(x, y, z)`
-// gives a block name, or null where no chunk is loaded. A block counts only when it touches air: worldgen fills caves
-// with cave_air, so buried stone and cave walls stay out.
-export function glance (nameAt, x0, y0, z0) {
+// Per heading, the nearest known block as {block, distance}, or with `target` the nearest block of that type, so a
+// nearer known block does not mask it; headings that show none are left out. `nameAt(x, y, z)` gives a block name, or
+// null where no chunk is loaded. A block counts only when it touches air: worldgen fills caves with cave_air, so buried
+// stone and cave walls stay out.
+export function glance (nameAt, x0, y0, z0, target = null) {
   const seen = {}
   for (const [heading, [dx, dz]] of HEADINGS) {
-    const nearest = scan(nameAt, x0, y0, z0, dx, dz)
+    const nearest = scan(nameAt, x0, y0, z0, dx, dz, target)
     if (nearest) seen[heading] = nearest
   }
   return seen
 }
 
-function scan (nameAt, x0, y0, z0, dx, dz) {
+function scan (nameAt, x0, y0, z0, dx, dz, target) {
   // The width runs along x except east and west, so a diagonal corridor is sheared and has no holes.
   const [wx, wz] = dz === 0 ? [0, 1] : [1, 0]
   for (let k = 1; k <= LENGTH; k++) {
@@ -37,7 +38,7 @@ function scan (nameAt, x0, y0, z0, dx, dz) {
       for (const dy of LEVELS) {
         const y = y0 + dy
         const block = normalize(nameAt(x, y, z) ?? '')
-        if (KNOWN.has(block) && touchesAir(nameAt, x, y, z)) return { block, distance: k }
+        if ((target ? block === target : KNOWN.has(block)) && touchesAir(nameAt, x, y, z)) return { block, distance: k }
       }
     }
   }

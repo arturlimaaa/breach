@@ -81,18 +81,22 @@ start state. Blocks are not restored.
 
 Steps over Minecraft:
 
-- `move`: `target` is `north`, `south`, `east`, `west` (one block), `{"toward": "log"}`, or
-  `{"heading": "NE", "blocks": 8}`. A toward-move brings a visible block of that type within reach: the bot stands in
-  its column or one of the eight around it, diagonals included, within 4.5 blocks of it. It is ok at once when the bot
-  already stands so for one of the three nearest such blocks. Otherwise it paths to the nearest of those three that has
-  a path, and answers no path only when none does. A heading move paths to within one block, diagonals included, of
-  the point `blocks` along a heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, or `NW`, counted as `look` counts them: a
-  diagonal block is one on each axis. With no path there, it tries the points at half and a quarter of the way, all
-  measured from where it started, so a blocked line still makes progress. `ok` says whether one of them was reached.
-  `output` is the final position, and `executed` is true once the pathfinder ran. Paths never dig or place blocks, so
-  moving leaves the inventory alone. A failed path stops the bot where it stands. Each path is bounded at 20 s.
+- `move`: `target` is `north`, `south`, `east`, `west` (one block), `{"toward": "log"}`,
+  `{"heading": "NE", "blocks": 8}`, or `{"to": {"x": 60, "y": 71, "z": -109}}`. A toward-move brings a visible block
+  of that type within reach: the bot stands in its column or one of the eight around it, diagonals included, within
+  4.5 blocks of it. It is ok at once when the bot already stands so for one of the three nearest such blocks.
+  Otherwise it paths to the nearest of those three that has a path, and answers no path only when none does. A heading
+  move paths to within one block, diagonals included, of the point `blocks` along a heading `N`, `NE`, `E`, `SE`, `S`,
+  `SW`, `W`, or `NW`, counted as `look` counts them: a diagonal block is one on each axis. With no path there, it tries
+  the points at half and a quarter of the way, all measured from where it started, so a blocked line still makes
+  progress. A move to a position paths within reach of it, by the same rule as a toward-move, so the bot can go back to
+  a table or a stone it saw earlier and no longer sees; it is ok at once when already there, and answers
+  `no path to X,Y,Z` otherwise. For heading and position moves, `ok` says whether the bot arrived, `output` is the
+  final position, and `executed` is true once the pathfinder ran. Paths never dig or place blocks, so moving leaves
+  the inventory alone. A failed path stops the bot where it stands. Each path is bounded at 20 s.
 - `look`: changes nothing. `output` maps each heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW` to the nearest `log`,
-  `stone`, `coal_ore`, or `crafting_table` as `{"block", "distance"}`, and leaves out headings that show none. It
+  `stone`, `coal_ore`, or `crafting_table` as `{"block", "distance"}`, and leaves out headings that show none. With
+  `target`, a block name, each heading reports the nearest block of that type instead, so stone behind logs is found. It
   searches like the grid's look, over the loaded chunks: a corridor 7 wide and 48 long, step by step, center lane
   first. Each corridor cell is a column searched within 16 blocks of the feet, nearest height first. A block counts
   only when it touches air; worldgen fills caves with `cave_air`, so buried stone and cave walls stay out. A look that

@@ -41,3 +41,18 @@ test('look counts only known blocks that touch air, so buried stone and cave wal
     W: { block: 'log', distance: 12 }
   })
 })
+
+test('look with a target reports the nearest block of that type per heading, past nearer known blocks', () => {
+  const cells = {
+    '3,64,0': 'oak_log', // E: a log masks the stone behind it unless the look names stone
+    '9,64,1': 'stone',
+    '0,64,-5': 'oak_log' // N: no stone at all
+  }
+  assert.deepEqual(
+    { plain: glance(world(cells), 0, 64, 0), stone: glance(world(cells), 0, 64, 0, 'stone') },
+    {
+      plain: { E: { block: 'log', distance: 3 }, N: { block: 'log', distance: 5 } },
+      stone: { E: { block: 'stone', distance: 9 } }
+    }
+  )
+})
