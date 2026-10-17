@@ -9,6 +9,7 @@ from pathlib import Path
 from breach.changes import apply
 from breach.evaluate import certified_vanilla
 from breach.live import Pack, live
+from breach.matrix import perfect
 from breach.proof import proof
 from breach.reload import hr_task
 from breach.rules import Rule
@@ -74,6 +75,23 @@ class LiveWiringTests(unittest.TestCase):
         done = subprocess.run([*LIVE, str(run), "--url", url, "--task", "T1", "--llm"], cwd=ROOT, env=env, capture_output=True, text=True)
         calls = [json.loads(line) for line in (run / "model_calls.jsonl").read_text().splitlines()]
         self.assertEqual((done.returncode != 0, [(c["purpose"], "error" in c) for c in calls]), (True, [("induce", True)]))
+
+    def test_hs_runs_the_hr_goal_again_on_the_changed_server_and_certifies_hrs_revision(self):
+        server = "grid/stick-count-2"
+        hr_url, hs_url = self.adapter(VANILLA, server), self.adapter(CHANGED, server)
+        run, _ = console(self.tmp / "server", STICK_COUNT, self.worlds)
+        pack = Pack(STICK_COUNT, self.tmp / "server", run)
+        hr = live(self.tmp / "hr", hr_url, hr_task(STICK_COUNT), "D", pack, keep_pack=True, induce=perfect(CHANGED))
+        hs = self.tmp / "hs"
+        cli = [*LIVE, str(hs), "--url", hs_url, "--hs", STICK_COUNT.id, "--store", str(hr / "store.json"), "--prior", str(hr / "hr.jsonl")]
+        subprocess.run(cli, cwd=ROOT, check=True)
+        [entry] = json.loads((hs / "manifest.json").read_text())["episodes"]
+        [proven] = proof(hs)["episodes"]
+        store = {r["rule_id"]: r["status"] for r in json.loads((hs / "store.json").read_text())}
+        self.assertEqual(
+            ((entry["task"], entry["change"], entry["goal"]), proven["contradictions"], store[f"craft:stick@{server}"]),
+            (("hs", STICK_COUNT.id, hr_task(STICK_COUNT).goal), 0, "certified"),
+        )
 
 
 if __name__ == "__main__":
