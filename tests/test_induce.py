@@ -1,6 +1,6 @@
 import json
 import unittest
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from breach.induce import JSON_SCHEMA, induce
 from breach.log import Transition
@@ -17,6 +17,15 @@ COUNTEREXAMPLE = Transition(
 def revision(delta, **changes):
     """One rule object as a model would echo it: the demoted rule with a new delta."""
     return {**DEMOTED.to_dict(), **changes, "delta": delta}
+
+
+# What Nemotron Nano 30B proposed in the first live HR (runs/live-hr-1, stick-count-2), as docs/progress.md records it.
+LIVE_HR = [
+    revision({}, near="planks"),
+    revision({}, near="stick"),
+    revision({}, near='{"crafting_table":1}'),
+    revision({}, tool="stone_pickaxe"),
+]
 
 
 def scripted(*replies):
@@ -99,6 +108,38 @@ class InduceTests(unittest.TestCase):
 
     def test_json_schema_requires_every_rule_field(self):
         self.assertEqual(set(JSON_SCHEMA["items"]["required"]), {f.name for f in fields(Rule)})
+
+    def test_refuses_each_candidate_the_first_live_hr_proposed(self):
+        refused = []
+        for candidate in LIVE_HR:
+            complete, calls = scripted(json.dumps([candidate]), "[]")
+            refused.append((induce(DEMOTED, COUNTEREXAMPLE, [], complete=complete), "item 1:" in calls[1][0][-1]["content"]))
+        self.assertEqual(refused, [([], True)] * len(LIVE_HR))
+
+    def test_a_craft_consumes_something_produces_its_target_and_names_no_block_but_a_station(self):
+        complete, _ = scripted(json.dumps([
+            revision({"stick": 2}),
+            revision({"planks": -2}),
+            revision({"planks": -2, "stick": 2}, near="planks"),
+            revision({"planks": -2, "stick": 2}, near="crafting_table"),
+            revision({"planks": -2, "stick": 3}, near="furnace"),
+            revision({"planks": -1, "stick": 2}, tool="stone_pickaxe"),
+        ]))
+        self.assertEqual(
+            induce(DEMOTED, COUNTEREXAMPLE, [], complete=complete),
+            [
+                replace(hypothesis(1, {"planks": -2, "stick": 2}), near="crafting_table"),
+                replace(hypothesis(2, {"planks": -2, "stick": 3}), near="furnace"),
+                replace(hypothesis(3, {"planks": -1, "stick": 2}), tool="stone_pickaxe"),
+            ],
+        )
+
+    def test_prompt_states_what_a_craft_candidate_must_look_like(self):
+        complete, calls = scripted(json.dumps([revision({"planks": -2, "stick": 2})]))
+        induce(DEMOTED, COUNTEREXAMPLE, [], complete=complete)
+        prompt = calls[0][0][0]["content"]
+        needles = ("every item it consumes as a negative count and stick as a positive count", 'near is null, "crafting_table" or "furnace"')
+        self.assertEqual([needle in prompt for needle in needles], [True, True])
 
 
 if __name__ == "__main__":
