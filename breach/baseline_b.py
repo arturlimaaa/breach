@@ -75,8 +75,9 @@ def run_episode_b(
         observed = diff(before.inventory, result.observation.inventory)
         cls = "exact" if rule else "tolerant"
         log.append(Transition(
-            episode, world.actions, world.server, obs_hash(before), action.name, action.target,
-            f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls, verdict(cls, predicted, observed, result.ok),
+            episode, world.actions, world.server, obs_hash(before), action.name, rule.target if rule else action.target,
+            f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
+            verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
         ))
         return result
 
