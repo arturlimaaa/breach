@@ -114,7 +114,7 @@ export class MineflayerWorld {
   async #run (action, target, grid) {
     switch (action) {
       case 'move': return this.#move(target)
-      case 'look': return this.#look()
+      case 'look': return this.#look(target)
       case 'mine': return this.#mine(target)
       case 'place': return this.#place(target)
       case 'craft': return this.#craft(grid)
@@ -130,6 +130,7 @@ export class MineflayerWorld {
       return { ok: true, message: `moved toward ${target.toward}` }
     }
     if (target?.heading !== undefined) return this.#head(target.heading, target.blocks)
+    if (target?.to !== undefined) return this.#moveTo(target.to)
     const offset = DIRECTIONS.get(target)
     if (!offset) throw new Error('target must be north, south, east, west, {"toward": block}, or {"heading": h, "blocks": n}')
     const { x, z } = this.position()
@@ -157,6 +158,22 @@ export class MineflayerWorld {
       }
     }
     return { ok: false, message: `no path ${heading}`, output: this.position() }
+  }
+
+  // Paths within reach of a position seen earlier, by the reach rule of mine and toward-moves, so the executor can go
+  // back to a table or a stone it cannot see from here.
+  async #moveTo (to) {
+    const { x, y, z } = to ?? {}
+    if (![x, y, z].every(Number.isInteger)) throw new Error('to must be {"x", "y", "z"} in whole blocks')
+    const goal = reach(new Vec3(x, y, z))
+    const label = `${x},${y},${z}`
+    this.#executed = true
+    try {
+      if (!this.#reached(goal)) await this.#goto(goal, `to ${label}`)
+      return { ok: true, message: `moved to ${label}`, output: this.position() }
+    } catch {
+      return { ok: false, message: `no path to ${label}`, output: this.position() }
+    }
   }
 
   async #mine (target) {
@@ -337,11 +354,12 @@ export class MineflayerWorld {
     throw new Error(`no path ${label}`)
   }
 
-  #look () {
+  #look (target) {
+    if (target != null && typeof target !== 'string') throw new Error('target must be a block name')
     this.#executed = true
     const { x, y, z } = this.position()
-    const seen = glance((bx, by, bz) => this.bot.blockAt(new Vec3(bx, by, bz), false)?.name ?? null, x, y, z)
-    return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen }
+    const seen = glance((bx, by, bz) => this.bot.blockAt(new Vec3(bx, by, bz), false)?.name ?? null, x, y, z, target)
+    return { ok: true, message: `${target ?? 'blocks'} along ${Object.keys(seen).length} headings`, output: seen }
   }
 
   // Non-air blocks within RADIUS that touch air, nearest first: the look rule. A ray to each block's center, the earlier
