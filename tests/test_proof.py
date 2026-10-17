@@ -129,24 +129,25 @@ class ProofTests(unittest.TestCase):
         )
 
     def test_each_system_names_its_slowest_recovery_and_averages_all_its_episodes(self):
+        result = proof(self.run_dir)
         self.assertEqual(
-            proof(self.run_dir)["systems"],
-            {"D": {
-                "worst_case": {"episode": DROPPED["id"], "recovery_latency": None},
-                "aggregate": {
+            {key: result[key] for key in ("worst_case", "aggregate")},
+            {
+                "worst_case": {"D": {"episode": DROPPED["id"], "recovery_latency": None}},
+                "aggregate": {"D": {
                     "system": "D", "set": "all", "episodes": 3, "success": 1 / 3, "actions_per_success": 4.0,
                     "contradicted": 2, "actions_after_contradiction": 1.0, "immediate_repeat": 0.5,
                     "recovery_latency_mean": 5.0, "recovery_latency_worst": 5, "unrecovered": 1,
                     "text_model_calls": 2 / 3, "tokens": 800.0,
-                },
-            }},
+                }},
+            },
         )
 
     def test_a_system_without_contradictions_has_no_worst_case_episode(self):
         write_run(self.tmp / "matrix" / "D", "D", [CLEAN], LOGS, [])
         write_run(self.tmp / "matrix" / "B", "B", [CONTRADICTED], LOGS, CALLS)
         self.assertEqual(
-            {system: v["worst_case"] for system, v in proof(self.tmp / "matrix")["systems"].items()},
+            proof(self.tmp / "matrix")["worst_case"],
             {"B": {"episode": CONTRADICTED["id"], "recovery_latency": 5}, "D": {"episode": None, "recovery_latency": None}},
         )
 
