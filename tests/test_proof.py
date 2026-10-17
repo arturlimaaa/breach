@@ -188,6 +188,17 @@ class ProofTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "t1-s1.*success"):
             proof(self.tmp / "lie")
 
+    def test_a_recovery_test_of_the_same_block_is_no_repeat_and_is_the_recovery(self):
+        retest = {**DROPPED, "id": "stone-drop-nothing-hc-s2", "seed": 2, "actions": 4}
+        logs = {retest["id"]: [
+            step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+            step("look", None, None, {}, {}, "ignored"),
+            step("move", "east", None, {}, {}, "match"),
+            step("mine", "stone", "mine:stone@grid/stone-drop-nothing#1", {}, {}, "match", test=True),
+        ]}
+        [record] = proof(write_run(self.tmp / "retest", "D", [retest], logs, []))["episodes"]
+        self.assertEqual((record["immediate_repeat"], record["recovery_latency"]), (0, 3))
+
     def test_cli_writes_proof_json_and_prints_the_worst_case_row_first(self):
         result = subprocess.run([sys.executable, "-m", "breach.proof", str(self.run_dir)], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(
