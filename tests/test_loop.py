@@ -34,6 +34,11 @@ class LoopTests(unittest.TestCase):
             (True, ["stick", "planks", "wooden_pickaxe", "stone_pickaxe"]),
         )
 
+    def test_budget_exhausted_on_arrival_logs_no_phantom_step(self):
+        log = TransitionLog()
+        result = run_episode(GridWorld(replace(T1, budget=8), seed=1), certified_store(), log, "t1")
+        self.assertEqual((len(log), log.contradictions(), result.reason), (result.actions, [], "budget"))
+
     def test_count_change_aborts_at_the_craft_step(self):
         recipes = dict(VANILLA.recipes)
         recipes["stick"] = Recipe({"planks": 2}, 2, None)

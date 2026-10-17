@@ -95,6 +95,8 @@ class Executor:
                     break
                 if step.action == "mine" and not self.travel_to(step.target):
                     return EpisodeResult(False, self.world.actions, f"no reachable {step.target}")
+                if self.world.done:
+                    break
                 action = Action(step.action, step.target if step.action == "craft" else None)
                 transition = self.act(action, step)
                 if transition.cls == "exact" and transition.verdict == "mismatch":
