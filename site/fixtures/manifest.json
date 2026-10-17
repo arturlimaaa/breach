@@ -1,0 +1,31 @@
+{
+  "system": "D",
+  "episodes": [
+    {
+      "id": "stick-count-2-hc-s1",
+      "task": "hc",
+      "server": "grid/stick-count-2",
+      "change": "stick-count-2",
+      "seed": 1,
+      "goal": "wooden_pickaxe",
+      "count": 1,
+      "inventory": {},
+      "success": false,
+      "actions": 12,
+      "reason": "contradiction at craft:stick"
+    },
+    {
+      "id": "stick-count-2-hs-s1",
+      "task": "hs",
+      "server": "grid/stick-count-2",
+      "change": "stick-count-2",
+      "seed": 1,
+      "goal": "wooden_pickaxe",
+      "count": 1,
+      "inventory": {},
+      "success": false,
+      "actions": 0,
+      "reason": "no certified plan"
+    }
+  ]
+}

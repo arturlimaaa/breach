@@ -5,7 +5,7 @@ const num = v => v == null ? '–' : typeof v === 'boolean' ? (v ? 'yes' : 'no')
   : typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(1) : esc(v);
 const pct = v => typeof v === 'number' ? `${Math.round(v * 100)}%` : v;
 const delta = d => Object.entries(d || {}).sort(([, a], [, b]) => a - b).map(([k, n]) => `${k} ${n > 0 ? '+' : ''}${n}`).join(', ');
-const load = name => fetch(`../runs/${run}/${name}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+const load = (name, as = 'json') => fetch(`../runs/${run}/${name}`, { cache: 'no-store' }).then(r => r.ok ? r[as]() : null).catch(() => null);
 const missing = name => `<p class="missing">runs/${esc(run)}/${name} is missing or not valid JSON.</p>`;
 
 const SUMMARY = ['system', 'set', 'episodes', 'success', 'actions_per_success', 'contradicted', 'actions_after_contradiction',
@@ -45,8 +45,10 @@ ${table(EPISODE, [...eps.filter(isWorst).map(e => episode(e, 'worst-case')), ...
 const card = r => `<div class="card ${esc(r.status)}"><code>${esc(r.rule_id)}</code> <span class="delta">${esc(delta(r.delta))}</span>
 <small>${esc(r.status)} · scope ${esc(r.scope)} · ${(r.evidence || []).length} evidence${r.tool ? ` · tool ${esc(r.tool)}` : ''}${r.near ? ` · near ${esc(r.near)}` : ''} · ${esc(r.source)}${r.revision_of ? ` · revises ${esc(r.revision_of)}` : ''}</small></div>`;
 
+// Without a store there is nothing to compare; the dashboard's rules section already reports it missing.
 function revision(id, store) {
-  const after = Array.isArray(store) ? store.find(r => r.rule_id === id) : null;
+  if (!Array.isArray(store)) return '';
+  const after = store.find(r => r.rule_id === id);
   const before = after && store.find(r => r.rule_id === after.revision_of);
   return before ? `<div class="revision">${card(before)}<span>→</span>${card(after)}</div>`
     : `<p class="missing">No before and after: store.json has no ${esc(id)} with a revision_of in the store.</p>`;
@@ -69,17 +71,19 @@ function rules(store) {
 }
 
 // One bad file blanks only its own section.
-function section(id, data, name, render) {
+function section(id, data, name, render, empty = missing(name)) {
   try {
-    $(id).innerHTML = data ? render(data) : missing(name);
+    $(id).innerHTML = data ? render(data) : empty;
   } catch (err) {
-    $(id).innerHTML = `<p class="missing">${name} could not be rendered: ${esc(err.message)}</p>`;
+    $(id).innerHTML = `<p class="missing">${esc(name)} could not be rendered: ${esc(err.message)}</p>`;
   }
 }
 
-$('run').textContent = run;
-Promise.all(['status.json', 'proof.json', 'store.json'].map(load)).then(([status, proof, store]) => {
-  section('results', proof, 'proof.json', results);
-  section('plan', status, 'status.json', s => plan(s, store));
-  section('rules', Array.isArray(store) && store, 'store.json', rules);
-});
+function dashboard() {
+  $('run').textContent = run;
+  Promise.all(['status.json', 'proof.json', 'store.json'].map(name => load(name))).then(([status, proof, store]) => {
+    section('results', proof, 'proof.json', results);
+    section('plan', status, 'status.json', s => plan(s, store));
+    section('rules', Array.isArray(store) && store, 'store.json', rules);
+  });
+}
