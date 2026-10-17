@@ -81,23 +81,30 @@ start state. Blocks are not restored.
 
 Steps over Minecraft:
 
-- `move`: `target` is `north`, `south`, `east`, `west` (one block), or `{"toward": "log"}`. A toward-move brings a
-  visible block of that type within reach: the bot stands in its column or one of the eight around it, diagonals
-  included, within 4.5 blocks of it. It is ok at once when the bot already stands so for one of the three nearest such
-  blocks. Otherwise it paths to the nearest of those three that has a path, and answers no path only when none does.
-  Paths never dig or place blocks, so moving leaves the inventory alone. A failed path stops the bot where it stands.
-  Each path is bounded at 20 s.
+- `move`: `target` is `north`, `south`, `east`, `west` (one block), `{"toward": "log"}`, or
+  `{"heading": "NE", "blocks": 8}`. A toward-move brings a visible block of that type within reach: the bot stands in
+  its column or one of the eight around it, diagonals included, within 4.5 blocks of it. It is ok at once when the bot
+  already stands so for one of the three nearest such blocks. Otherwise it paths to the nearest of those three that has
+  a path, and answers no path only when none does. A heading move paths to within one block, diagonals included, of
+  the point `blocks` along a heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, or `NW`, counted as `look` counts them: a
+  diagonal block is one on each axis. With no path there, it tries the points at half and a quarter of the way, all
+  measured from where it started, so a blocked line still makes progress. `ok` says whether one of them was reached.
+  `output` is the final position, and `executed` is true once the pathfinder ran. Paths never dig or place blocks, so
+  moving leaves the inventory alone. A failed path stops the bot where it stands. Each path is bounded at 20 s.
 - `look`: changes nothing. `output` maps each heading `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW` to the nearest `log`,
   `stone`, `coal_ore`, or `crafting_table` as `{"block", "distance"}`, and leaves out headings that show none. It
   searches like the grid's look, over the loaded chunks: a corridor 7 wide and 48 long, step by step, center lane
   first. Each corridor cell is a column searched within 16 blocks of the feet, nearest height first. A block counts
   only when it touches air; worldgen fills caves with `cave_air`, so buried stone and cave walls stay out. A look that
   finds nothing reads about 280,000 blocks in about 0.15 s.
-- Every observation lists the non-air blocks within 8 blocks that have a clear line from the bot's eyes, nearest first.
-- `mine`: `target` is a block name. It picks its block the way a toward-move does, so it digs the block a toward-move
-  went to, and digs it with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
-  waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the
-  server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
+- Every observation lists the non-air blocks within 8 blocks that touch air, nearest first. That is the rule `look`
+  uses, and it is what "visible" means for a toward-move and a mine too. There is no line-of-sight test: a ray to a
+  block's center misses a trunk under leaves one block away. The pathfinder decides what can be reached.
+- `mine`: `target` is a block name. It tries the block the last toward-move reached first, then picks the way a
+  toward-move does, and digs with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of
+  pickup range, it walks onto it (3 s) and waits 1 s more. `output` is `{block_removed, collected}`. `block_removed`
+  is read after those waits, so a dig the server refused shows as `false`. `collected` is the inventory delta. `ok`
+  equals `block_removed`.
 - `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
   foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
   the block there, and the message gives its position. `output` is the inventory delta, as for `craft`:
@@ -202,19 +209,20 @@ Secret Manager through `gcloud` and calls `https://openrouter.ai` directly.
 | Call | When | Request | Through the relay |
 |---|---|---|---|
 | Planner, `plan()` | At start, then on a stage or dimension change, no useful action, two failures, a reached waypoint, or every 120 s | `POST /api/v1/chat/completions`: `PLANNER_MODEL`, his system prompt for the dragon route, the observation as JSON, `reasoning: {effort: "low"}`, `max_tokens` 1800, `response_format` `json_object`. It parses the reply as JSON with a string `objective`. | Goes to `BREACH_LLM_BASE_URL` with thinking off and without `reasoning`. A 400 or 422 is retried once without `response_format`. |
-| Jev, `decide()` | Once per action | `POST /api/alpha/decisions`: `typesafe/jev-1.13`, `state` (the observation as a JSON string), and one `choice` question whose criteria are the menu descriptions `a0`, `a1`, and so on. It reads `answers.action.choice`. | Goes to OpenRouter unchanged with `JEV_API_KEY`. Without it the relay answers 502, so his agent plans but never acts, and it logs a `loop_error` every 2 s. |
+| Jev, `decide()` | Once per decision, waits included | `POST /api/alpha/decisions`: `typesafe/jev-1.13`, `state` (the observation as a JSON string), and one `choice` question whose criteria are the menu descriptions `a0`, `a1`, and so on. It reads `answers.action.choice`. | Goes to OpenRouter unchanged with `JEV_API_KEY`. Without it the relay answers 502, so his agent plans but never acts, and it logs a `loop_error` every 2 s. |
 
 `python3 -m breach.convert_rmalde <events.jsonl> runs/<name> --task T1 [--change <id>]` writes the run layout for B:
 
-- Each `result` event becomes one transition. Its action comes from the menu key of the `decision` before it.
-  `craft_<item>_<n>` is a craft predicted as n times the bundled delta. `<label>(x, y, z)` mines the block that its
-  description names. `place_table` is a place. Walking keys are moves. Any other key is its own action, which is not
-  checked.
+- Each `result` event becomes one transition, except a wait's. Its action comes from the menu key of the `decision`
+  before it. `craft_<item>_<n>` is a craft predicted as n times the bundled delta. `<label>(x, y, z)` mines the block
+  that its description names. `place_table` is a place. Walking keys are moves. Any other key is its own action, which
+  is not checked.
 - Predictions come from `rules_from_ruleset(VANILLA)` with `bundled:` rule ids, as for B on the grid. A craft that the
   table lacks, such as `stone_axe` or `oak_boat`, predicts nothing and is `ignored`.
 - Observed deltas come from consecutive inventory snapshots, with wood variants merged as the adapter merges them. The
   episode starts from the first decision's inventory, because the `start` event comes before the runner's `clear`.
-- The episode ends at the first result that holds the goal, or at the task's budget.
+- A wait is a decision without a world action, as for B on the grid. It is neither a transition nor an action, but it
+  spends the budget like any decision. So a refused craft, then waits, then the same craft is an immediate repeat.
+- The episode ends at the first result that holds the goal, or once the task's budget of decisions is spent.
 - `plan` and `plan_error` events become `model_calls.jsonl` records with the reply's token usage. Jev decisions are not
   text-model calls.
-- His waits are actions. A wait between a refused craft and its retry makes the proof's immediate repeat 0.

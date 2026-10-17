@@ -136,6 +136,19 @@ test('steps after success still run until the budget is spent', async (t) => {
   )
 })
 
+test('a heading move answers with the final position, which the next observation shows', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'move', target: { heading: 'NE', blocks: 3 } })
+  assert.deepEqual(
+    { result, position: observation.position },
+    {
+      result: { ok: true, message: 'moved 3 blocks NE', output: { x: 3, y: 64, z: -3 }, events: [], executed: true },
+      position: { x: 3, y: 64, z: -3 }
+    }
+  )
+})
+
 test('a step the world refuses reports executed false', async (t) => {
   const call = await start(t)
   await call('POST', '/reset', task())
