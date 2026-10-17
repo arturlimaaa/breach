@@ -7,7 +7,7 @@ python3 -m http.server   # from the repo root
 open "http://localhost:8000/site/?run=<run>"
 ```
 
-- `index.html`: the dashboard. Results table from `proof.json`, the plan diff with the rule under revision, and every stored rule grouped by status.
+- `index.html`: the dashboard. The headline and episode tables from `proof.json`, the plan diff with the rule under revision, and every stored rule grouped by status.
 - `banner.html`: the OBS overlay. Add a Browser source at `http://localhost:8000/site/banner.html?run=<run>`, 1920×1080. The page background is transparent. It polls `status.json` every 250 ms and keeps the last frame when a read fails.
 
 Both pages read `runs/<run>/`. `?run=` defaults to `latest`: the runner keeps `runs/latest` as a symlink to the newest run.
@@ -44,12 +44,12 @@ While a rule is `demoted`, `revising` or `recertified`, `rule.rule_id` names the
 
 Written by `python3 -m breach.proof runs/<run>`. Top-level keys:
 
-- `system`: the system label.
-- `episodes`: one object per episode with `id`, `task`, `seed`, `success`, `actions`, `contradictions`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency`, `text_model_calls`, `tokens`.
-- `aggregate`: `holdout_success`, `actions_per_success`, `actions_after_contradiction`, `immediate_repeat_rate`, `recovery_latency_mean`, `recovery_latency_worst`, `text_model_calls_per_episode`.
-- `worst_case`: `{episode, recovery_latency}`. The episode whose `id` matches is the first row.
+- `rows`: summary rows as `breach.proof.rows` builds them, rendered in order as the headline table: each system's `worst` row, then its mean row per task set. Fields: `system`, `set`, `episodes`, `success`, `actions_per_success`, `contradicted`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency_mean`, `recovery_latency_worst`, `unrecovered`, `text_model_calls`, `tokens`.
+- `aggregate`: keyed by system, one summary row over all of that system's episodes, shown under `rows` as set `all`.
+- `episodes`: one object per episode with `system`, `id`, `success`, `actions`, `contradictions`, `actions_after_contradiction`, `immediate_repeat`, `recovery_latency`, `text_model_calls`, `tokens`. The table leaves out `task`, `seed`, `server` and `change`, which the id already names.
+- `worst_case`: keyed by system, `{episode, recovery_latency}`. Systems share episode ids, so the row that leads the episode table matches on both system and id.
 
-Rates are fractions in [0, 1]. A `null` metric shows as a dash. A failed episode with a contradiction and a `null` recovery latency shows `never`.
+`success` and `immediate_repeat` in summary rows are fractions in [0, 1] and show as percentages. A `null` metric shows as a dash. An episode with a contradiction and a `null` recovery latency shows `never`, and so does a summary row with `unrecovered` above zero, as in `breach.proof`'s table.
 
 ### store.json
 
@@ -57,4 +57,6 @@ The rule store file as `RuleStore` writes it: a JSON list of `Rule.to_dict()`. T
 
 ## Fixtures
 
-A stone pickaxe episode on a server where a stick craft yields 2, not 4. Step numbers, plans and evidence lists come from the grid executor on seed 1, with training on T1 to T3 over seeds 1 and 2. The recovery is hand-written: the probe step, the revised rule's `source` and evidence, the Nemotron latency and token counts, and every `proof.json` number past the first contradiction.
+The status and store fixtures show a stone pickaxe episode on a server where a stick craft yields 2, not 4. Step numbers, plans and evidence lists come from the grid executor on seed 1, with training on T1 to T3 over seeds 1 and 2. The recovery is hand-written: the probe step, the revised rule's `source` and evidence, and the Nemotron latency.
+
+`proof.json` comes from `python3 -m breach.matrix` on five changes, seed 1. B's episodes are as measured. D's HC episodes are measured up to the first contradiction; their recovery, and every D HS episode, is hand-written, because D does not recover yet. `rows` is recomputed by `breach.proof.rows`. `worst_case` and `aggregate` follow the shape the proof lane was asked for; a null latency ranks worst.

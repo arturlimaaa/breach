@@ -8,30 +8,31 @@ const delta = d => Object.entries(d || {}).sort(([, a], [, b]) => a - b).map(([k
 const load = name => fetch(`../runs/${run}/${name}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
 const missing = name => `<p class="missing">runs/${esc(run)}/${name} is missing or not valid JSON.</p>`;
 
-// Server and change are left out: the episode id names the change, and with them the metrics overflow a laptop screen.
-const COLS = ['id', 'task', 'seed', 'success', 'actions', 'contradictions',
-  'actions_after_contradiction', 'immediate_repeat', 'recovery_latency', 'text_model_calls', 'tokens'];
+const SUMMARY = ['system', 'set', 'episodes', 'success', 'actions_per_success', 'contradicted', 'actions_after_contradiction',
+  'immediate_repeat', 'recovery_latency_mean', 'recovery_latency_worst', 'text_model_calls', 'tokens'];
+// Task, seed, server and change are left out: the episode id names them, and with them the metrics overflow a laptop screen.
+const EPISODE = ['system', 'id', 'success', 'actions', 'contradictions', 'actions_after_contradiction',
+  'immediate_repeat', 'recovery_latency', 'text_model_calls', 'tokens'];
 
-function row(e, cls) {
-  // Null latency also means "never contradicted" or "finished without needing the rule again".
-  const never = e.contradictions && !e.success && e.recovery_latency == null;
-  return `<tr class="${cls}">${COLS.map(k => `<td>${num(k === 'recovery_latency' && never ? 'never' : e[k])}</td>`).join('')}</tr>`;
-}
+const tr = (cls, cells) => `<tr class="${cls}">${cells.map(c => `<td>${num(c)}</td>`).join('')}</tr>`;
+const table = (cols, rows) => `<div class="scroll"><table><thead><tr>${cols.map(k => `<th>${k === 'id' ? 'episode' : k.replaceAll('_', ' ')}</th>`).join('')}</tr></thead>
+<tbody>${rows.join('')}</tbody></table></div>`;
+// Formatted as breach.proof's table: rates as percentages, and "never" when a contradicted episode never matched again.
+const summary = (r, cls) => tr(cls, SUMMARY.map(k => k === 'success' || k === 'immediate_repeat' ? pct(r[k])
+  : k === 'recovery_latency_worst' && r.unrecovered ? 'never' : r[k]));
+const episode = (e, cls) => tr(cls, EPISODE.map(k => k === 'recovery_latency' && e.contradictions && e[k] == null ? 'never' : e[k]));
 
 function results(p) {
-  const eps = p.episodes || [], worst = p.worst_case?.episode, a = p.aggregate;
-  const rows = [...eps.filter(e => e.id === worst).map(e => row(e, 'worst')), ...eps.filter(e => e.id !== worst).map(e => row(e, ''))];
-  if (a) rows.push(row({
-    id: 'aggregate', success: pct(a.holdout_success), actions: a.actions_per_success,
-    actions_after_contradiction: a.actions_after_contradiction, immediate_repeat: pct(a.immediate_repeat_rate),
-    recovery_latency: `${num(a.recovery_latency_mean)} mean, ${num(a.recovery_latency_worst)} worst`,
-    text_model_calls: a.text_model_calls_per_episode,
-  }, 'aggregate'));
-  const gaps = [!worst && 'worst_case', !a && 'aggregate'].filter(Boolean);
-  return `<p>System <code>${esc(p.system)}</code>, ${eps.length} episodes. Worst case first; the aggregate row holds rates and means.
-${gaps.length ? `<span class="missing">proof.json has no ${gaps.join(' or ')}.</span>` : ''}</p>
-<div class="scroll"><table><thead><tr>${COLS.map(k => `<th>${k === 'id' ? 'episode' : k.replaceAll('_', ' ')}</th>`).join('')}</tr></thead>
-<tbody>${rows.join('')}</tbody></table></div>`;
+  const eps = p.episodes || [], worst = p.worst_case || {};
+  const isWorst = e => worst[e.system]?.episode === e.id;
+  const summaries = [...(p.rows || []).map(r => summary(r, r.set === 'worst' ? 'worst' : '')),
+    ...Object.entries(p.aggregate || {}).map(([system, a]) => summary({ system, set: 'all', ...a }, 'aggregate'))];
+  const gaps = ['rows', 'worst_case', 'aggregate'].filter(k => !p[k]);
+  return `<p>Worst rows first, then means by task set; <code>all</code> is each system's aggregate.
+${gaps.length ? `<span class="missing">proof.json has no ${gaps.join(', ')}.</span>` : ''}</p>
+${table(SUMMARY, summaries)}
+<h3>Episodes (${eps.length}), each system's worst case first</h3>
+${table(EPISODE, [...eps.filter(isWorst).map(e => episode(e, 'worst-case')), ...eps.filter(e => !isWorst(e)).map(e => episode(e, ''))])}`;
 }
 
 const card = r => `<div class="card ${esc(r.status)}"><code>${esc(r.rule_id)}</code> <span class="delta">${esc(delta(r.delta))}</span>
