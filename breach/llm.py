@@ -24,8 +24,11 @@ _OLLAMA = {"model": "nemotron-3-nano:4b", "key": False, "thinking": "reasoning_e
 # What differs per endpoint. An unknown base URL is treated like NVIDIA's.
 PROVIDERS: dict[str, dict[str, Any]] = {
     # The id is Crusoe's catalog slug, not yet confirmed live: check list_models() once a key exists.
-    "https://api.inference.crusoecloud.com/v1": {"model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "key": True, "thinking": "chat_template_kwargs"},
-    DEFAULT_BASE_URL: {"model": DEFAULT_MODEL, "key": True, "thinking": "chat_template_kwargs"},
+    # Crusoe answers HTTP 403 to a reasoning_budget parameter, so thinking there is switched by chat_template_kwargs alone.
+    "https://api.inference.crusoecloud.com/v1": {
+        "model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "key": True, "thinking": "chat_template_kwargs", "budget": False,
+    },
+    DEFAULT_BASE_URL: {"model": DEFAULT_MODEL, "key": True, "thinking": "chat_template_kwargs", "budget": True},
     "http://localhost:11434/v1": _OLLAMA,
     "http://127.0.0.1:11434/v1": _OLLAMA,
 }
@@ -71,7 +74,7 @@ def complete(
             body["reasoning_effort"] = "high" if thinking else "none"
         else:
             body["chat_template_kwargs"] = {"enable_thinking": thinking}
-            if thinking:
+            if thinking and provider["budget"]:
                 body["reasoning_budget"] = budget
         if schema is not None:
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": "rules", "schema": schema, "strict": True}}
