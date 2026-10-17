@@ -149,6 +149,32 @@ test('a heading move answers with the final position, which the next observation
   )
 })
 
+test('look with a target reports only blocks of that type over HTTP', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'look', target: 'stone' })
+  assert.deepEqual(result, {
+    ok: true,
+    message: 'stone along 3 headings',
+    output: { SE: { block: 'stone', distance: 3 }, S: { block: 'stone', distance: 3 }, SW: { block: 'stone', distance: 3 } },
+    events: [],
+    executed: true
+  })
+})
+
+test('a move to a position answers it as the final position, which the next observation shows', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task())
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'move', target: { to: { x: 5, y: 64, z: -2 } } })
+  assert.deepEqual(
+    { result, position: observation.position },
+    {
+      result: { ok: true, message: 'moved to 5,64,-2', output: { x: 5, y: 64, z: -2 }, events: [], executed: true },
+      position: { x: 5, y: 64, z: -2 }
+    }
+  )
+})
+
 test('a step the world refuses reports executed false', async (t) => {
   const call = await start(t)
   await call('POST', '/reset', task())

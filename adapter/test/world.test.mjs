@@ -234,8 +234,8 @@ test('mine digs the nearest block that has a path, the one a toward-move reaches
   )
 })
 
-// The bot at `feet`. A path whose goal `reachable` accepts ends in the goal's column; any other path stops one block
-// toward its goal and rejects, as the pathfinder's partial paths do.
+// The bot at `feet`. A path whose goal `reachable` accepts ends in the goal's column (the first goal of a reach goal);
+// any other path stops one block toward its goal and rejects, as the pathfinder's partial paths do.
 function walkingBot (feet, reachable) {
   const bot = Object.assign(new EventEmitter(), {
     paths: [],
@@ -243,13 +243,14 @@ function walkingBot (feet, reachable) {
     pathfinder: {
       setGoal () {},
       async goto (goal) {
-        bot.paths.push([goal.x, goal.z])
+        const { x, z } = goal.goals?.[0] ?? goal
+        bot.paths.push([x, z])
         const at = bot.entity.position.floored()
-        if (reachable(goal)) {
-          bot.entity.position = new Vec3(goal.x + 0.5, feet.y, goal.z + 0.5)
+        if (reachable({ x, z })) {
+          bot.entity.position = new Vec3(x + 0.5, feet.y, z + 0.5)
           return
         }
-        bot.entity.position = bot.entity.position.offset(Math.sign(goal.x - at.x), 0, Math.sign(goal.z - at.z))
+        bot.entity.position = bot.entity.position.offset(Math.sign(x - at.x), 0, Math.sign(z - at.z))
         throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' })
       }
     }
@@ -417,4 +418,40 @@ test('mine stone with two pickaxes held equips the faster one', async () => {
   const bot = quarryBot(new Vec3(1, 64, 0), ['wooden_pickaxe', 'stone_pickaxe'])
   const { message } = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'stone' })
   assert.deepEqual({ message, equipped: bot.equipped }, { message: 'mined stone with stone_pickaxe', equipped: ['stone_pickaxe'] })
+})
+
+test('a move to a remembered position paths within reach of it and answers the final position', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => true)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { to: { x: 10, y: 65, z: -4 } } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: true, message: 'moved to 10,65,-4', output: { x: 10, y: 64, z: -4 }, events: [], executed: true }, paths: [[10, -4]] }
+  )
+})
+
+test('a move to a position already in reach is ok without a path', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => true)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { to: { x: 1, y: 64, z: 1 } } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: true, message: 'moved to 1,64,1', output: { x: 0, y: 64, z: 0 }, events: [], executed: true }, paths: [] }
+  )
+})
+
+test('a move to a position with no path fails where the partial path left the bot, executed', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => false)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { to: { x: 10, y: 65, z: -4 } } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: false, message: 'no path to 10,65,-4', output: { x: 1, y: 64, z: -1 }, events: [], executed: true }, paths: [[10, -4]] }
+  )
+})
+
+test('a move to a position without integer coordinates is refused without executing', async () => {
+  const bot = walkingBot(new Vec3(0.5, 64, 0.5), () => true)
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'move', target: { to: { x: 10, z: -4 } } })
+  assert.deepEqual(
+    { result, paths: bot.paths },
+    { result: { ok: false, message: 'move: to must be {"x", "y", "z"} in whole blocks', output: null, events: [], executed: false }, paths: [] }
+  )
 })
