@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from .world import DIRECTIONS, RADIUS, Action, Observation, Position, StepResult, Task
+from .world import DIRECTIONS, HEADINGS, RADIUS, Action, Observation, Position, StepResult, Task
 
 TIMEOUT = 90  # seconds; the adapter bounds a step at 60 s and serves one request at a time
 
@@ -27,7 +28,7 @@ def parse(data: dict[str, Any]) -> Observation:
 class HttpWorld:
     """The adapter behind the world interface the executor and B use. Every observation refreshes the attributes."""
 
-    paths = True  # the contract's move takes {"toward": block}, which paths next to the nearest one in sight
+    paths = True  # the contract's move paths: {"toward": block} next to the nearest one in sight, {"heading", "blocks"} along a heading
 
     def __init__(self, base_url: str, task: Task):
         """POST /reset with `task`. The rule scope `server` is the adapter's label, mc/<host>:<port>/<world> live."""
@@ -41,9 +42,7 @@ class HttpWorld:
         return self._update(self._call("GET", "/observe"))
 
     def step(self, action: Action) -> StepResult:
-        # A move names a direction or the block to path toward.
-        target = action.target if action.name != "move" or action.target in DIRECTIONS else {"toward": action.target}
-        data = self._call("POST", "/step", {"action": action.name, "target": target, "grid": action.grid})
+        data = self._call("POST", "/step", {"action": action.name, "target": _target(action), "grid": action.grid})
         # An adapter from before `executed` evaluated every step it answered.
         return StepResult(
             data["ok"], data["message"], data["output"], self._update(data["observation"]), data["events"], data.get("executed", True),
@@ -75,3 +74,14 @@ class HttpWorld:
             raise RuntimeError(f"{method} {url}: HTTP {err.code} {detail}") from err
         except OSError as err:  # refused, reset, or timed out
             raise RuntimeError(f"{method} {url}: {err}") from err
+
+
+def _target(action: Action) -> Any:
+    """A move's target as the contract spells it. The core names a direction ("east"), a heading and block count ("E8",
+    so the transition log keeps a string), or the block to path toward ("log")."""
+    if action.name != "move" or action.target in DIRECTIONS:
+        return action.target
+    heading = re.fullmatch(r"([A-Z]{1,2})(\d+)", action.target or "")
+    if heading and heading[1] in HEADINGS:
+        return {"heading": heading[1], "blocks": int(heading[2])}
+    return {"toward": action.target}

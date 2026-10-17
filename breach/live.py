@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from time import monotonic, sleep
@@ -76,12 +76,13 @@ def _listing(log: Path, start: int) -> str | None:
 
 def live(
     out_dir: Path, url: str, task: Task, system: str, pack: Pack | None = None, prior: Sequence[Path] = (), *,
-    store: Path | None = None, keep_pack: bool = False, induce: Induce | None = None,
+    store: Path | None = None, keep_pack: bool = False, induce: Induce | None = None, change: str | None = None,
 ) -> Path:
     """Writes run_jobs' layout, manifest.json and <episode>.jsonl, with the task id as the episode id.
 
     With a `pack` (HR), the server loads it just before the first step that uses its rule and unloads it when the
-    episode ends, unless `keep_pack` leaves it enabled for an HS run on the same server.
+    episode ends, unless `keep_pack` leaves it enabled for an HS run on the same server. `change` names the change
+    an HS run's server already has, for the manifest.
     `prior` names earlier runs' logs: certification counts their evidence, and they are never copied into this log.
     D starts from `store`, an earlier run's store.json on the same server, or else from the certified vanilla rules.
     """
@@ -107,7 +108,7 @@ def live(
     # factory on run_jobs would end the copy.
     # Like run_jobs, the outcome is the world's, not the system's claim; the proof re-derives it from the log.
     entry = {
-        "id": task.task_id, "task": task.task_id, "server": world.server, "change": None if pack is None else pack.change.id,
+        "id": task.task_id, "task": task.task_id, "server": world.server, "change": pack.change.id if pack else change,
         "seed": None, "goal": task.goal, "count": task.count, "inventory": dict(task.inventory),
         "success": world.success, "actions": world.actions, "reason": result.reason, "reset": world.reset_message,
     }
@@ -125,6 +126,7 @@ def main() -> None:
     episode = parser.add_mutually_exclusive_group(required=True)
     episode.add_argument("--task", choices=TASKS)
     episode.add_argument("--change", choices=changes, help="HR: the change's goal from a vanilla start, its datapack loaded just before the first use of its rule")
+    episode.add_argument("--hs", choices=changes, help="HS: the change's HR goal again, as task hs, on a server that already has its pack; no reload, no unload")
     parser.add_argument("--server-dir", type=Path, help="with --change: the server directory, e.g. adapter/server; its console is the screen session mc")
     parser.add_argument("--system", choices=SYSTEMS, default="D")
     parser.add_argument("--prior", nargs="+", type=Path, default=[], help="earlier runs' <episode>.jsonl logs for certification to replay")
@@ -136,8 +138,14 @@ def main() -> None:
         parser.error("--change needs --server-dir")
     pack = Pack(changes[args.change], args.server_dir) if args.change else None
     inducer = partial(induce, complete=nemotron(args.out_dir)) if args.llm else None
-    task = hr_task(pack.change) if pack else TASKS[args.task]
-    print(live(args.out_dir, args.url, task, args.system, pack, args.prior, store=args.store, keep_pack=args.keep_pack, induce=inducer))
+    if args.hs:
+        task = replace(hr_task(changes[args.hs]), task_id="hs")  # as hr_jobs relabels HR's task for HS on the grid
+    else:
+        task = hr_task(pack.change) if pack else TASKS[args.task]
+    print(live(
+        args.out_dir, args.url, task, args.system, pack, args.prior,
+        store=args.store, keep_pack=args.keep_pack, induce=inducer, change=args.hs,
+    ))
 
 
 if __name__ == "__main__":

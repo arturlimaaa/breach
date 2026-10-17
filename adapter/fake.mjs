@@ -1,7 +1,7 @@
 import { glance, HEADINGS } from './look.mjs'
 
 // In-memory World with the adapter's interface: a flat block list and a small inventory. It can only mine, look, and
-// move along a heading, which always reaches its point.
+// move along a heading or to a position, which always arrives.
 export class FakeWorld {
   server = 'fake/flat'
   #items = {}
@@ -34,10 +34,16 @@ export class FakeWorld {
       this.#position = { ...this.#position, x: this.#position.x + dx * target.blocks, z: this.#position.z + dz * target.blocks }
       return { ok: true, message: `moved ${target.blocks} blocks ${target.heading}`, output: this.position(), events: [], executed: true }
     }
+    if (action === 'move' && target?.to) {
+      const { x, y, z } = target.to
+      this.#position = { x, y, z }
+      return { ok: true, message: `moved to ${x},${y},${z}`, output: this.position(), events: [], executed: true }
+    }
     if (action === 'look') {
       const { x, y, z } = this.position()
-      const seen = glance((bx, by, bz) => this.blocks.find(b => b.x === bx && b.y === by && b.z === bz)?.block ?? 'air', x, y, z)
-      return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen, events: [], executed: true }
+      const nameAt = (bx, by, bz) => this.blocks.find(b => b.x === bx && b.y === by && b.z === bz)?.block ?? 'air'
+      const seen = glance(nameAt, x, y, z, target)
+      return { ok: true, message: `${target ?? 'blocks'} along ${Object.keys(seen).length} headings`, output: seen, events: [], executed: true }
     }
     const index = action === 'mine' ? this.blocks.findIndex(block => block.block === target) : -1
     if (index < 0) return { ok: false, message: `fake world cannot ${action} ${target}`, output: null, events: [], executed: false }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from itertools import chain, count, cycle, islice, repeat
+from itertools import count, cycle, islice, repeat
 from pathlib import Path
 
 from .certify import certify, demote
@@ -19,6 +19,7 @@ from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
 SPIRAL_LEGS = 8
 # ponytail: walking back to a remembered block allows 4 failed or detoured moves; raise it if live walks stop short.
 SIGHT_MARGIN = 4
+COMPASS = {"east": "E", "south": "S", "west": "W", "north": "N"}
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ class Executor:
             # A probe consumes nothing; a test probe the world ran is checked exactly on what the output slot shows.
             observed, cls = result.output or {}, "exact" if result.executed else "tolerant"
         else:
-            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.executed)
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.executed, result.output)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
@@ -122,11 +123,9 @@ class Executor:
         return not self.world.done and self.act(Action("place", block))[1].ok
 
     def explore_until(self, block: str) -> bool:
-        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight.
-
-        A look with no output, which is what a failed adapter look returns, is followed by the first SPIRAL_LEGS legs of the
-        spiral, and then exploring stops.
-        """
+        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight."""
+        if self.world.paths:
+            return self.explore_by_heading(block)
         legs = _spiral_legs()
         while not self.world.done:
             _, glance = self.act(Action("look"))
@@ -135,8 +134,6 @@ class Executor:
                 dx, dz = HEADINGS[min(sightings, key=sightings.get)]
                 # A diagonal heading alternates its two cardinal moves.
                 path = islice(cycle([d for d, offset in DIRECTIONS.items() if offset in ((dx, 0), (0, dz))]), 8)
-            elif glance.output is None:
-                path = chain.from_iterable(repeat(*leg) for leg in islice(legs, SPIRAL_LEGS))
             else:
                 # ponytail: when nearer blocks mask every heading this is the O(r²) spiral again; head for the emptiest heading if that stalls.
                 path = repeat(*next(legs))
@@ -144,6 +141,37 @@ class Executor:
                 if self.world.done:
                     return False
                 self.act(Action("move", direction))
+                self.observe()
+                if self.nearest(block) is not None:
+                    return True
+        return False
+
+    def explore_by_heading(self, block: str) -> bool:
+        """Exploring a pathing world, where a step can be a path: look, then one heading move toward the nearest heading that
+        shows the block, at most 8 blocks, else one along the next spiral leg; repeat until the block is in view.
+
+        A heading move's target is the heading and its block count, such as "E8". After a failed move the next leg turns
+        instead of retrying that heading. A look with no output, which is what a failed adapter look returns, allows the
+        first SPIRAL_LEGS legs without looking again, then exploring stops.
+        """
+        legs, failed = _spiral_legs(), None
+        while not self.world.done:
+            _, glance = self.act(Action("look"))
+            sightings = {h: s["distance"] for h, s in (glance.output or {}).items() if s["block"] == block}
+            best = min(sightings, key=sightings.get, default=None)
+            if glance.output is None:
+                moves = [(COMPASS[direction], n) for direction, n in islice(legs, SPIRAL_LEGS)]
+            elif best is not None and best != failed:
+                moves = [(best, min(sightings[best], 8))]
+            else:
+                direction, n = next(legs)
+                if COMPASS[direction] == failed:
+                    direction, n = next(legs)
+                moves = [(COMPASS[direction], n)]
+            for heading, n in moves:
+                if self.world.done:
+                    return False
+                failed = None if self.act(Action("move", f"{heading}{n}"))[1].ok else heading
                 self.observe()
                 if self.nearest(block) is not None:
                     return True
@@ -182,14 +210,18 @@ class Executor:
         for step in steps:
             if self.world.done:
                 return None
-            if step.action == "mine" and not self.travel_to(step.target):
-                return None if self.world.done else f"no reachable {step.target}"
-            if step.action == "craft" and step.near and not self.station(step.near):
-                return None if self.world.done else f"no reachable {step.near}"
+            # The block a mine walks to, or the station a craft needs within reach.
+            needed = step.target if step.action == "mine" else step.near if step.action == "craft" else None
+            reached = needed is None or (self.travel_to(needed) if step.action == "mine" else self.station(needed))
             if self.world.done:
                 return None
+            # A pathing world's mine or craft walks the last stretch itself, so there only its refusal proves the block out of reach.
+            if not reached and not (self.world.paths and self.nearest(needed) is not None):
+                return f"no reachable {needed}"
             grid = {item: -n for item, n in step.delta.items() if n < 0} if step.action == "craft" else None
-            transition, _ = self.act(Action(step.action, step.target, grid), step)
+            transition, result = self.act(Action(step.action, step.target, grid), step)
+            if not reached and not result.executed:
+                return f"no reachable {needed}"
             if not self.check:
                 continue
             if transition.cls == "exact" and transition.verdict == "mismatch":
