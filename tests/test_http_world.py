@@ -16,8 +16,8 @@ from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.proof import proof
 from breach.tasks import H2, T1, T3
-from breach.world import VANILLA, Action, GridWorld, Task
-from tests.fake_adapter import observation, serve
+from breach.world import DIRECTIONS, VANILLA, Action, GridWorld, Task
+from tests.fake_adapter import Y, observation, serve
 from tests.test_baseline_a import T1_PLAN
 from tests.test_induce import scripted
 
@@ -61,7 +61,7 @@ class Bare(HttpWorld):
     """An adapter from before `executed`: its step replies carry no such field."""
 
     def __init__(self, reply):
-        self.blocks, self.reply = {}, reply
+        self.columns, self.reply = {}, reply
 
     def _call(self, method, path, body=None):
         return self.reply
@@ -105,14 +105,19 @@ class HttpWorldTests(unittest.TestCase):
         world.step(Action("mine"))
         self.assertEqual(world.blocks, {(-8, 0): "stone"})
 
-    def test_a_column_shows_the_visible_block_nearest_the_bots_height(self):
+    def test_a_column_shows_the_visible_block_nearest_the_bots_height_and_remembers_its_y(self):
         column = [(63, "grass_block"), (64, "log"), (66, "leaves")]
         data = {
             "server": "mc/test", "position": {"x": 0, "y": 64, "z": 0}, "inventory": {}, "action_count": 0, "budget": 1,
             "done": False, "success": False,
             "visible": [{"x": 1, "y": y, "z": 0, "block": b} for y, b in column] + [{"x": 2, "y": 61, "z": 0, "block": "stone"}],
         }
-        self.assertEqual(sorted(parse(data).visible), [(1, 0, "log"), (2, 0, "stone")])
+        world = Bare(data)
+        world.observe()
+        self.assertEqual(
+            (sorted(parse(data).visible), world.columns),
+            ([(1, 0, "log"), (2, 0, "stone")], {(1, 0): ("log", 64), (2, 0): ("stone", 61)}),
+        )
 
     def test_done_and_success_follow_the_observation(self):
         url = self.adapter()
@@ -188,7 +193,7 @@ class HttpWorldTests(unittest.TestCase):
         legs = ["E1", "S1", "W2", "N2", "E3", "S3", "W4", "N4"]
         self.assertEqual(
             (result.reason, [(t.action, t.target) for t in log]),
-            ("no reachable log", [("look", None), *(("move", leg) for leg in legs)]),
+            ("no reachable log", [("look", "log"), *(("move", leg) for leg in legs)]),
         )
 
     def test_a_look_with_no_output_walks_the_spiral_until_a_log_is_in_view(self):
@@ -196,13 +201,13 @@ class HttpWorldTests(unittest.TestCase):
         result = run_episode(HttpWorld(self.adapter(only({(9, 0): "log"}, Blind)), PLANKS), certified_vanilla(), log, "p")
         self.assertEqual(
             (result.reason, [(t.action, t.target) for t in log]),
-            ("goal", [("look", None), ("move", "E1"), ("move", "log"), ("mine", "log"), ("craft", "planks")]),
+            ("goal", [("look", "log"), ("move", "E1"), ("move", "log"), ("mine", "log"), ("craft", "planks")]),
         )
 
     def test_a_look_with_headings_explores_by_heading_moves_until_the_toward_move(self):
         log = TransitionLog()
         result = run_episode(HttpWorld(self.adapter(), H2), certified_vanilla(), log, "h2")
-        explored = list(takewhile(lambda t: t.target != "log", log))
+        explored = list(takewhile(lambda t: (t.action, t.target) != ("move", "log"), log))
         moves = [t.target for t in explored if t.action == "move"]
         self.assertEqual(
             (result.reason, {t.action for t in explored}, sum(t.action == "look" for t in explored) > 1,
@@ -214,14 +219,20 @@ class HttpWorldTests(unittest.TestCase):
         log = TransitionLog()
         world = HttpWorld(self.adapter(only({(9, 0): "log"}, Blind)), replace(PLANKS, budget=2))
         result = run_episode(world, certified_vanilla(), log, "p")
-        self.assertEqual((result.reason, [(t.action, t.target) for t in log]), ("budget", [("look", None), ("move", "E1")]))
+        self.assertEqual((result.reason, [(t.action, t.target) for t in log]), ("budget", [("look", "log"), ("move", "E1")]))
 
-    def test_a_remembered_block_out_of_view_is_walked_back_into_view_so_t3_finishes_on_seeds_1_to_10(self):
-        reasons = []
+    def test_a_remembered_block_out_of_view_is_reached_by_one_move_to_where_it_was_seen_so_t3_finishes_on_seeds_1_to_10(self):
+        reasons, moves, sent = [], [], []
         for seed in range(1, 11):
-            url = self.adapter(lambda task, seed=seed: GridWorld(task, seed=seed))
-            reasons.append(run_episode(HttpWorld(url, T3), certified_vanilla(), TransitionLog(), "t3").reason)
-        self.assertEqual(reasons, ["goal"] * 10)
+            log = TransitionLog()
+            url = self.adapter(lambda task, seed=seed: GridWorld(task, seed=seed), lambda body: sent.append(body["target"]))
+            reasons.append(run_episode(HttpWorld(url, T3), certified_vanilla(), log, "t3").reason)
+            moves += [t.target for t in log if t.action == "move"]
+        positions = [target["to"] for target in sent if isinstance(target, dict) and "to" in target]
+        self.assertEqual(
+            (reasons, [m for m in moves if m in DIRECTIONS], [m for m in moves if m.startswith("to ")], {p["y"] for p in positions}),
+            (["goal"] * 10, [], [f"to {p['x']},{p['y']},{p['z']}" for p in positions], {Y}),
+        )
 
     def test_b_sends_the_block_to_mine_and_the_craft_grid(self):
         steps = []

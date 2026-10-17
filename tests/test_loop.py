@@ -167,6 +167,15 @@ class LoopTests(unittest.TestCase):
         result = run_episode(world, certified_store(), log, "p")
         self.assertEqual((result.reason, [t.target for t in log if t.action == "move"]), ("budget", ["E8", "S1", "E8", "W2"]))
 
+    def test_exploring_looks_for_the_block_type_so_a_log_in_front_does_not_hide_the_stone_behind_it(self):
+        log, world = TransitionLog(), GridWorld(Task("c", "cobblestone", inventory={"wooden_pickaxe": 1}), seed=1)
+        world.blocks = {(9, 0): "log", (12, 0): "stone"}
+        result = run_episode(world, certified_store(), log, "c")
+        self.assertEqual(
+            (result.reason, [(t.action, t.target) for t in log]),
+            ("goal", [("look", "stone"), *[("move", "east")] * 12, ("mine", "stone")]),
+        )
+
     def test_t1_seed_1_logs_the_golden_transitions(self):
         log = TransitionLog()
         run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")

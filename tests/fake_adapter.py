@@ -24,13 +24,16 @@ def observation(obs: Observation) -> dict[str, Any]:
 
 def step(world: GridWorld, action: Action) -> StepResult:
     """One adapter step on the grid. The adapter's pathing takes one action each: `move {"toward": b}` stops next to the
-    nearest b in view, `move {"heading": h, "blocks": n}` goes up to n cells along h, and `mine b` steps onto the nearest b
-    within reach 1, where the grid mines.
+    nearest b in view, `move {"heading": h, "blocks": n}` goes up to n cells along h, `move {"to": {x, y, z}}` stops next
+    to (x, z), and `mine b` steps onto the nearest b within reach 1, where the grid mines.
 
     The adapter's mine walks to any b in sight; reach 1 is stricter so that a test proves the executor travelled first."""
-    if not world.done and action.name == "move" and isinstance(action.target, dict) and "heading" in action.target:
-        return heading_move(world, action.target["heading"], action.target["blocks"])
-    toward = action.name == "move" and isinstance(action.target, dict)
+    path = action.target if action.name == "move" and isinstance(action.target, dict) and not world.done else {}
+    if "heading" in path:
+        return heading_move(world, path["heading"], path["blocks"])
+    if "to" in path:
+        return move_to(world, path["to"])
+    toward = "toward" in path
     if world.done or not (toward or action.name == "mine" and action.target):
         return world.step(action)
     block, reach = (action.target["toward"], RADIUS) if toward else (action.target, 1)
@@ -59,6 +62,14 @@ def heading_move(world: GridWorld, heading: str, blocks: int) -> StepResult:
     world.actions += 1
     ok = within(world.position, (x0 + blocks * dx, z0 + blocks * dz))
     return StepResult(ok, f"moved {walked} of {blocks} blocks {heading}", None, world.observe())
+
+
+def move_to(world: GridWorld, to: dict[str, int]) -> StepResult:
+    """The adapter's move to a position as a teleport onto the cell beside it nearest the bot, where a toward-move lands."""
+    (x0, z0), (x, z) = world.position, (to["x"], to["z"])
+    world.position = min(((x + dx, z + dz) for dx, dz in DIRECTIONS.values()), key=lambda p: abs(p[0] - x0) + abs(p[1] - z0))
+    world.actions += 1
+    return StepResult(True, f"moved to {x},{to['y']},{z}", None, world.observe())
 
 
 def serve(make_world: Callable[[Task], GridWorld], on_step: Callable[[dict[str, Any]], None] = lambda body: None) -> ThreadingHTTPServer:

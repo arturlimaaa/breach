@@ -17,8 +17,6 @@ from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
 
 # ponytail: after a look with no output, 8 legs walk 4 blocks out, 12 with the view; look again if failed looks strand live runs.
 SPIRAL_LEGS = 8
-# ponytail: walking back to a remembered block allows 4 failed or detoured moves; raise it if live walks stop short.
-SIGHT_MARGIN = 4
 COMPASS = {"east": "E", "south": "S", "west": "W", "north": "N"}
 
 
@@ -101,14 +99,12 @@ class Executor:
             return False
         target = self.nearest(block)
         if self.world.paths:
-            # A toward-move reaches only a block in view, so walk at a remembered one until an observation shows it.
-            seen = self.observe()
-            for _ in range(_away(self.world.position, target) + SIGHT_MARGIN):
-                if self.world.done or any(b == block for *_, b in seen.visible):
-                    break
-                seen = self.act(Action("move", _heading(self.world.position, target)))[1].observation
-            # One move paths next to the block and the mine walks the last metre. A failed path is not retried.
-            return not self.world.done and self.act(Action("move", block))[1].ok
+            # One move paths next to the block and the mine walks the last metre: toward a block in view, else to the
+            # column a remembered one was seen in, at its y. A failed path is not retried.
+            x, z = target
+            in_view = any(b == block for *_, b in self.observe().visible)
+            move = block if in_view else f"to {x},{self.world.columns[target][1]},{z}"
+            return not self.world.done and self.act(Action("move", move))[1].ok
         while self.world.position != target and not self.world.done:
             self.act(Action("move", _heading(self.world.position, target)))
         return self.world.position == target
@@ -123,19 +119,19 @@ class Executor:
         return not self.world.done and self.act(Action("place", block))[1].ok
 
     def explore_until(self, block: str) -> bool:
-        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight."""
+        """Look for the block; walk up to 8 moves along the nearest heading that shows one, else one spiral leg; repeat until it is in sight."""
         if self.world.paths:
             return self.explore_by_heading(block)
         legs = _spiral_legs()
         while not self.world.done:
-            _, glance = self.act(Action("look"))
+            _, glance = self.act(Action("look", block))
             sightings = {h: s["distance"] for h, s in (glance.output or {}).items() if s["block"] == block}
             if sightings:
                 dx, dz = HEADINGS[min(sightings, key=sightings.get)]
                 # A diagonal heading alternates its two cardinal moves.
                 path = islice(cycle([d for d, offset in DIRECTIONS.items() if offset in ((dx, 0), (0, dz))]), 8)
             else:
-                # ponytail: when nearer blocks mask every heading this is the O(r²) spiral again; head for the emptiest heading if that stalls.
+                # ponytail: with no block of the type in any corridor this is the O(r²) spiral; widen the corridors if that stalls.
                 path = repeat(*next(legs))
             for direction in path:
                 if self.world.done:
@@ -156,7 +152,7 @@ class Executor:
         """
         legs, failed = _spiral_legs(), None
         while not self.world.done:
-            _, glance = self.act(Action("look"))
+            _, glance = self.act(Action("look", block))
             sightings = {h: s["distance"] for h, s in (glance.output or {}).items() if s["block"] == block}
             best = min(sightings, key=sightings.get, default=None)
             if glance.output is None:
@@ -266,10 +262,6 @@ def _spiral_legs():
     for n in count(1):
         for direction in ("east", "south") if n % 2 else ("west", "north"):
             yield direction, n
-
-
-def _away(a: Position, b: Position) -> int:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def _heading(src: Position, dst: Position) -> str:

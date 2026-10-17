@@ -40,6 +40,11 @@ class GridWorldTests(unittest.TestCase):
             (True, {"S": {"block": "log", "distance": 30}, "NE": {"block": "log", "distance": 21}}, {"planks": 2}, 1),
         )
 
+    def test_a_look_for_a_block_type_reports_the_nearest_of_that_type_behind_other_blocks(self):
+        world = GridWorld(T1, seed=7)
+        world.blocks = {(-2, 30): "log", (1, 40): "stone", (20, -21): "log"}
+        self.assertEqual(world.step(Action("look", "stone")).output, {"S": {"block": "stone", "distance": 40}})
+
     def test_only_a_step_the_world_refused_before_acting_is_not_executed(self):
         coal_sticks = replace(VANILLA, recipes={**VANILLA.recipes, "stick": Recipe({"planks": 2, "coal": 1}, 4, None)})
         pickaxe = {"planks": 3, "stick": 2}

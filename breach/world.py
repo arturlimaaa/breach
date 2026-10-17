@@ -231,7 +231,8 @@ class GridWorld:
         return self._result(True, f"placed {block} at {cell}", {block: -1})
 
     def _look(self, action: Action) -> StepResult:
-        """Nearest block per heading in a corridor 7 wide and 48 steps long; a heading with nothing in it is left out."""
+        """Nearest block per heading in a corridor 7 wide and 48 steps long, or with a `target`, nearest block of that type;
+        a heading with nothing in it is left out."""
         x0, z0 = self.position
         seen: dict[str, dict[str, Any]] = {}
         for heading, (dx, dz) in HEADINGS.items():
@@ -239,7 +240,7 @@ class GridWorld:
             wx, wz = (0, 1) if dz == 0 else (1, 0)
             for k, j in product(range(1, 49), (0, -1, 1, -2, 2, -3, 3)):
                 block = self.blocks.get((x0 + k * dx + j * wx, z0 + k * dz + j * wz))
-                if block:
+                if block and action.target in (None, block):
                     seen[heading] = {"block": block, "distance": k}
                     break
         return self._result(True, f"blocks along {len(seen)} headings", seen)
