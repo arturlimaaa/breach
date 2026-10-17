@@ -5,7 +5,7 @@
 Orchestrator: the main session. Builders: Opus agents, one per lane, each in
 its own git worktree and branch. A lane is done when its gate command passed
 and the orchestrator read the output, then the branch is merged into
-`al/integrate`.
+`al/integrate` (checked out at /Users/artur/breach; lanes live in /Users/artur/breach-wt/<lane>).
 
 | Lane | Branch | Status | Gate |
 |---|---|---|---|
@@ -15,6 +15,7 @@ and the orchestrator read the output, then the branch is merged into
 | M4 Mineflayer adapter + server setup | `al/m4-adapter` | running | `node --test` with a fake bot; live T1 waits on the EULA |
 | M3 baseline B (rmalde architecture, grid) | `al/m3-baseline-b` | running | B finishes vanilla T1; re-crafts under a count change; stalls under a precondition change |
 | M3 evaluator + proof script | `al/m3-proof` | running | proof.json and results table from a run directory |
+| M2 Nemotron client + inducer + test ordering | `al/m2-llm` | running | fake-transport tests; schema gate; model_calls.jsonl |
 
 ## 2026-10-17, session 1
 
