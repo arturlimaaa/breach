@@ -62,6 +62,18 @@ def reuses_refuted_rule(log):
     return bool(after) and after[0].rule_id == first.rule_id
 
 
+class RefusedProbe(GridWorld):
+    """Its first probe is refused before the world is touched yet reports ok with an empty slot, as the adapter's does."""
+
+    refused = False
+
+    def _probe(self, action):
+        if self.refused:
+            return super()._probe(action)
+        self.refused = True
+        return self._result(True, "probe ingredients not held", {}, executed=False)
+
+
 def true_delta(change):
     rule_id = f"mine:{change.block}" if change.kind == "drop" else f"craft:{change.recipe}"
     return next(r.delta for r in rules_from_ruleset(apply(change, VANILLA)) if r.rule_id == rule_id)
@@ -223,6 +235,16 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(
             (result.reason, len(calls), [t.rule_id for t in log if t.action == "probe"]),
             ("goal", 2, [f"{SWAPPED_STICK}#2"]),
+        )
+
+    def test_a_probe_the_world_refused_is_no_test_even_when_it_reports_ok(self):
+        change = next(c for c in enumerate_class() if c.id == "stick-swap-planks-log")
+        world, log, store = RefusedProbe(STICKS, 1, apply(change, VANILLA), server=f"grid/{change.id}"), TransitionLog(), certified_store()
+        induce, calls = scripted([sticks(4, {"log": 2})], [sticks(4, {"log": 2})])
+        result = run_episode(world, store, log, "hc", induce=induce)
+        self.assertEqual(
+            (result.reason, len(calls), [(t.cls, t.verdict) for t in log if t.action == "probe"], store.rules[SWAPPED_STICK].delta),
+            ("goal", 2, [("tolerant", "match"), ("exact", "match")], {"log": -2, "stick": 4}),
         )
 
     def test_a_contradiction_while_acquiring_a_grid_ends_the_episode_with_a_reason(self):

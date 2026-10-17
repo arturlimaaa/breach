@@ -20,8 +20,8 @@ class ClassifyTests(unittest.TestCase):
         }
         self.assertEqual({key: classify(*key) for key in expected}, expected)
 
-    def test_a_mine_that_left_its_block_is_judged_on_ok_ness_alone(self):
-        self.assertEqual([classify("mine", block, ok=False) for block in ("log", "leaves")], ["tolerant", "tolerant"])
+    def test_a_step_the_world_refused_before_acting_is_judged_on_ok_ness_alone(self):
+        self.assertEqual([classify(action, "log", executed=False) for action in ("craft", "mine", "probe")], ["tolerant"] * 3)
 
 
 if __name__ == "__main__":

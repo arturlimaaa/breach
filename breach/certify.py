@@ -26,8 +26,9 @@ def replayed(log: Iterable[Transition], rule: Rule, rules: dict[str, Rule]) -> t
     """Contradictions and confirmations of a revised rule, recomputed from every step of its key on its server.
 
     A step counts whatever rule it was logged under, test or not. A failed step only shows the world refused
-    the action, so it counts neither way, nor does a quarantined one. A probe counts for every rule with the
-    grid it placed, which is the inputs of the rule it was logged under.
+    the action, so it counts neither way, nor does a quarantined one or one logged tolerant because the world
+    never acted on it. A probe counts for every rule with the grid it placed, which is the inputs of the rule
+    it was logged under.
     """
 
     def placed(t: Transition) -> bool:
@@ -36,7 +37,7 @@ def replayed(log: Iterable[Transition], rule: Rule, rules: dict[str, Rule]) -> t
 
     steps = [
         t for t in log
-        if t.server == rule.scope and t.ok and t.verdict != "quarantined" and ((t.action, t.target) == rule.key or placed(t))
+        if t.server == rule.scope and t.ok and t.cls == "exact" and t.verdict != "quarantined" and ((t.action, t.target) == rule.key or placed(t))
     ]
     holds = [t.observed == (rule.outputs if t.action == "probe" else rule.delta) for t in steps]
     return [t for t, h in zip(steps, holds) if not h], [t for t, h in zip(steps, holds) if h]
