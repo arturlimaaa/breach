@@ -11,7 +11,7 @@ and the orchestrator read the output, then the branch is merged into
 |---|---|---|---|
 | M0 core | `al/m0-core` | done, 9f73c73 | 17 tests green |
 | M1 verifier + certifier + demotion | `al/m1-verify` | merged fcae9e7, 29 tests | synthetic-log tests; vanilla T1 plans after a server demotion |
-| M3 change-class generator + datapacks | `al/m3-changes` | running | 30 changes enumerated, rulesets and datapacks written, impossible goals excluded |
+| M3 change-class generator + datapacks | `al/m3-changes` | merged 2a72002, 49 tests; 20 of 30 changes benchmarkable | 30 changes enumerated, rulesets and datapacks written, impossible goals excluded |
 | M4 Mineflayer adapter + server setup | `al/m4-adapter` | running | `node --test` with a fake bot; live T1 waits on the EULA |
 | M3 baseline B (rmalde architecture, grid) | `al/m3-baseline-b` | merged 1048e7b, 37 tests | B finishes vanilla T1; re-crafts under a count change; stalls under a precondition change |
 | M3 evaluator + proof script | `al/m3-proof` | running | proof.json and results table from a run directory |
