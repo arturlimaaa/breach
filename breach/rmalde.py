@@ -107,7 +107,7 @@ def run(out_dir: Path, task: Task, seconds: float, change: str | None = None) ->
     agent = subprocess.Popen(["node", "agent.mjs"], cwd=HARNESS, env=env)
     try:
         if not _wait(agent, lambda: any(e["type"] == "start" for e in events()), 120):
-            raise RuntimeError(f"{BOT} did not join 127.0.0.1:25565 within 120 s; see {path}")
+            raise RuntimeError(f"{BOT} did not join 127.0.0.1:25565: his agent exited or 120 s passed; see its output and {path}")
         for command in (f"clear {BOT}", *(f"give {BOT} {VANILLA_IDS.get(k, k)} {n}" for k, n in task.inventory.items())):
             subprocess.run(["screen", "-S", "mc", "-p", "0", "-X", "stuff", command + "\r"], check=True)
         time.sleep(2)  # the inventory packets arrive before his first observation
