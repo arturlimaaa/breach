@@ -202,19 +202,20 @@ Secret Manager through `gcloud` and calls `https://openrouter.ai` directly.
 | Call | When | Request | Through the relay |
 |---|---|---|---|
 | Planner, `plan()` | At start, then on a stage or dimension change, no useful action, two failures, a reached waypoint, or every 120 s | `POST /api/v1/chat/completions`: `PLANNER_MODEL`, his system prompt for the dragon route, the observation as JSON, `reasoning: {effort: "low"}`, `max_tokens` 1800, `response_format` `json_object`. It parses the reply as JSON with a string `objective`. | Goes to `BREACH_LLM_BASE_URL` with thinking off and without `reasoning`. A 400 or 422 is retried once without `response_format`. |
-| Jev, `decide()` | Once per action | `POST /api/alpha/decisions`: `typesafe/jev-1.13`, `state` (the observation as a JSON string), and one `choice` question whose criteria are the menu descriptions `a0`, `a1`, and so on. It reads `answers.action.choice`. | Goes to OpenRouter unchanged with `JEV_API_KEY`. Without it the relay answers 502, so his agent plans but never acts, and it logs a `loop_error` every 2 s. |
+| Jev, `decide()` | Once per decision, waits included | `POST /api/alpha/decisions`: `typesafe/jev-1.13`, `state` (the observation as a JSON string), and one `choice` question whose criteria are the menu descriptions `a0`, `a1`, and so on. It reads `answers.action.choice`. | Goes to OpenRouter unchanged with `JEV_API_KEY`. Without it the relay answers 502, so his agent plans but never acts, and it logs a `loop_error` every 2 s. |
 
 `python3 -m breach.convert_rmalde <events.jsonl> runs/<name> --task T1 [--change <id>]` writes the run layout for B:
 
-- Each `result` event becomes one transition. Its action comes from the menu key of the `decision` before it.
-  `craft_<item>_<n>` is a craft predicted as n times the bundled delta. `<label>(x, y, z)` mines the block that its
-  description names. `place_table` is a place. Walking keys are moves. Any other key is its own action, which is not
-  checked.
+- Each `result` event becomes one transition, except a wait's. Its action comes from the menu key of the `decision`
+  before it. `craft_<item>_<n>` is a craft predicted as n times the bundled delta. `<label>(x, y, z)` mines the block
+  that its description names. `place_table` is a place. Walking keys are moves. Any other key is its own action, which
+  is not checked.
 - Predictions come from `rules_from_ruleset(VANILLA)` with `bundled:` rule ids, as for B on the grid. A craft that the
   table lacks, such as `stone_axe` or `oak_boat`, predicts nothing and is `ignored`.
 - Observed deltas come from consecutive inventory snapshots, with wood variants merged as the adapter merges them. The
   episode starts from the first decision's inventory, because the `start` event comes before the runner's `clear`.
-- The episode ends at the first result that holds the goal, or at the task's budget.
+- A wait is a decision without a world action, as for B on the grid. It is neither a transition nor an action, but it
+  spends the budget like any decision. So a refused craft, then waits, then the same craft is an immediate repeat.
+- The episode ends at the first result that holds the goal, or once the task's budget of decisions is spent.
 - `plan` and `plan_error` events become `model_calls.jsonl` records with the reply's token usage. Jev decisions are not
   text-model calls.
-- His waits are actions. A wait between a refused craft and its retry makes the proof's immediate repeat 0.
