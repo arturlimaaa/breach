@@ -23,8 +23,8 @@ class Step:
 def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], distance: Callable[[str], int | None]) -> list[Step] | None:
     """Minimum-action plan to hold `count` of `goal`, or None when no certified rule chain produces it.
 
-    ponytail: greedy per item (cheapest producer, prerequisites ordered deepest first);
-    exact search only if a change class makes producers compete for a scarce input.
+    ponytail: greedy per item (cheapest producer, prerequisites ordered deepest first, spent inputs
+    made again); exact search if competing inputs make greedy plans measurably longer than minimal.
     """
     producers: dict[str, list[Rule]] = {}
     for rule in rules:
@@ -60,19 +60,22 @@ def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], di
     def held_tier() -> int:
         return max((tier for tool, tier in TOOL_TIERS.items() if tool and held[tool] > 0), default=0)
 
-    def ensure(item: str, needed: int) -> bool:
+    def ensure(item: str, needed: int, pending: frozenset[str] = frozenset()) -> bool:
         while held[item] < needed:
             choice = best(item)
-            if choice is None:
+            # `best` only sees inputs; a station or tool that needs the item being made is a cycle.
+            if choice is None or item in pending:
                 return False
-            rule = choice[1]
-            if rule.action == "craft" and rule.near and not ensure(rule.near, 1):
+            rule, inner = choice[1], pending | {item}
+            if rule.action == "craft" and rule.near and not ensure(rule.near, 1, inner):
                 return False
-            if rule.tool and TOOL_TIERS[rule.tool] > held_tier() and not ensure(rule.tool, 1):
+            if rule.tool and TOOL_TIERS[rule.tool] > held_tier() and not ensure(rule.tool, 1, inner):
                 return False
             for inp, n in sorted(rule.inputs.items(), key=lambda kv: depth(kv[0]), reverse=True):
-                if not ensure(inp, n):
+                if not ensure(inp, n, inner):
                     return False
+            if any(held[inp] < n for inp, n in rule.inputs.items()):
+                continue  # making a later input spent an earlier one
             held.update(rule.delta)
             steps.append(Step(rule.rule_id, rule.action, rule.target, dict(rule.delta), rule.near, rule.tool))
         return True

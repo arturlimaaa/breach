@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .certify import demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
 from .store import RuleStore
+from .verify import classify
 from .world import DIRECTIONS, Action, GridWorld, Position
 
 
@@ -36,12 +38,15 @@ class Executor:
         result = self.world.step(action)
         observed = diff(before.inventory, result.observation.inventory)
         predicted = dict(step.delta) if step else {}
-        cls = "exact" if step else "tolerant"
+        # A mine action names no block; the step does, and both the exact whitelist and the metrics need it.
+        target = step.target if step else action.target
+        cls = classify(action.name, target)
         self.steps += 1
         transition = Transition(
-            self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
-            step.rule_id if step else None, predicted, observed, cls, verdict(cls, predicted, observed, result.ok),
-            step.test if step else False,
+            self.episode, self.steps, self.world.server, obs_hash(before), action.name, target,
+            step.rule_id if step else None, predicted, observed, cls,
+            verdict(cls, predicted, observed, result.ok, result.events), step.test if step else False,
+            result.ok, result.events,
         )
         self.log.append(transition)
         return transition
@@ -94,12 +99,20 @@ class Executor:
                 if self.world.done:
                     break
                 if step.action == "mine" and not self.travel_to(step.target):
+                    if self.world.done:
+                        break
                     return EpisodeResult(False, self.world.actions, f"no reachable {step.target}")
+                if self.world.done:
+                    break
                 action = Action(step.action, step.target if step.action == "craft" else None)
                 transition = self.act(action, step)
                 if transition.cls == "exact" and transition.verdict == "mismatch":
-                    # ponytail: M2 replaces this return with demotion, induction, and re-certification.
+                    demote(self.store, step.rule_id, self.world.server)
+                    # ponytail: M2 replaces this return with induction and re-certification.
                     return EpisodeResult(False, self.world.actions, f"contradiction at {step.rule_id}")
+                # The event may have moved the inventory off the plan; finishing it would blame the next rule.
+                if transition.verdict == "quarantined":
+                    break
         return EpisodeResult(self.world.success, self.world.actions, "goal" if self.world.success else "budget")
 
 

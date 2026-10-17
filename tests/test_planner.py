@@ -1,8 +1,10 @@
 import unittest
+from collections import Counter
+from dataclasses import replace
 
 from breach.planner import plan
 from breach.store import RuleStore
-from breach.world import VANILLA, rules_from_ruleset
+from breach.world import VANILLA, Recipe, rules_from_ruleset
 
 
 def certified_store():
@@ -10,6 +12,10 @@ def certified_store():
     for rule in rules_from_ruleset(VANILLA, status="certified"):
         store.add(rule)
     return store
+
+
+def rules_with(**recipes):
+    return rules_from_ruleset(replace(VANILLA, recipes={**VANILLA.recipes, **recipes}), status="certified")
 
 
 class PlannerTests(unittest.TestCase):
@@ -37,6 +43,16 @@ class PlannerTests(unittest.TestCase):
         for rule in rules_from_ruleset(VANILLA, status="hypothesis"):
             store.add(rule)
         self.assertIsNone(plan("planks", 4, {"log": 1}, store.usable("grid/vanilla"), lambda block: 1))
+
+    def test_a_tool_that_needs_itself_yields_no_plan(self):
+        rules = rules_with(planks=Recipe({"log": 1, "coal": 1}, 4, None))
+        self.assertIsNone(plan("wooden_pickaxe", 1, {}, rules, lambda block: 1))
+
+    def test_an_input_spent_on_a_later_inputs_tool_is_made_again(self):
+        held = Counter()
+        for step in plan("ladder", 1, {}, rules_with(ladder=Recipe({"stick": 7, "coal": 1}, 3)), lambda block: 1):
+            held.update(step.delta)
+        self.assertEqual({item: n for item, n in held.items() if n < 0}, {})
 
 
 if __name__ == "__main__":

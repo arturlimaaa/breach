@@ -87,6 +87,7 @@ class StepResult:
     message: str
     output: dict[str, int] | None
     observation: Observation
+    events: list[str] = field(default_factory=list)  # death, damage, despawn; the grid has no hazards
 
 
 def layout(seed: int, min_log_distance: int = 0) -> dict[Position, str]:
@@ -100,7 +101,7 @@ def layout(seed: int, min_log_distance: int = 0) -> dict[Position, str]:
                 blocks[(x, z)] = block
                 count -= 1
 
-    place("log", 6, max(1, min_log_distance), max(RADIUS, min_log_distance + 6))
+    place("log", 12, max(1, min_log_distance), max(RADIUS + 2, min_log_distance + 6))
     place("stone", 14, 2, 12)
     place("coal_ore", 4, 4, 14)
     return blocks

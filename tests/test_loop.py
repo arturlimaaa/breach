@@ -1,6 +1,9 @@
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
+from breach.certify import replay
 from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.store import RuleStore
@@ -15,6 +18,18 @@ def certified_store():
     return store
 
 
+def stick_count(n):
+    return replace(VANILLA, recipes={**VANILLA.recipes, "stick": Recipe({"planks": 2}, n, None)})
+
+
+class Hurt(GridWorld):
+    """Fires a damage event on every stick craft."""
+
+    def step(self, action):
+        result = super().step(action)
+        return replace(result, events=["damage"]) if action.target == "stick" else result
+
+
 class LoopTests(unittest.TestCase):
     def test_empty_store_issues_zero_crafts(self):
         log = TransitionLog()
@@ -24,7 +39,11 @@ class LoopTests(unittest.TestCase):
     def test_prior_store_reaches_a_wooden_pickaxe_within_budget(self):
         log = TransitionLog()
         result = run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")
-        self.assertEqual((result.success, len(log) == result.actions, log.contradictions()), (True, True, []))
+        mined = {(t.target, t.cls) for t in log if t.action == "mine"}
+        self.assertEqual(
+            (result.success, len(log) == result.actions, log.contradictions(), mined),
+            (True, True, [], {("log", "exact")}),
+        )
 
     def test_partial_inventory_skips_the_crafting_table(self):
         log = TransitionLog()
@@ -34,10 +53,13 @@ class LoopTests(unittest.TestCase):
             (True, ["stick", "planks", "wooden_pickaxe", "stone_pickaxe"]),
         )
 
+    def test_budget_exhausted_on_arrival_logs_no_phantom_step(self):
+        log = TransitionLog()
+        result = run_episode(GridWorld(replace(T1, budget=8), seed=1), certified_store(), log, "t1")
+        self.assertEqual((len(log), log.contradictions(), result.reason), (result.actions, [], "budget"))
+
     def test_count_change_aborts_at_the_craft_step(self):
-        recipes = dict(VANILLA.recipes)
-        recipes["stick"] = Recipe({"planks": 2}, 2, None)
-        world = GridWorld(T1, seed=1, ruleset=replace(VANILLA, recipes=recipes), server="grid/stick-count-2")
+        world = GridWorld(T1, seed=1, ruleset=stick_count(2), server="grid/stick-count-2")
         log = TransitionLog()
         result = run_episode(world, certified_store(), log, "hc")
         contradiction = log.contradictions()[0]
@@ -45,6 +67,38 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(
             (result.success, contradiction.target, contradiction.observed, after),
             (False, "stick", {"planks": -2, "stick": 2}, []),
+        )
+
+    def test_a_server_demotion_leaves_vanilla_planning_on_the_global_rule(self):
+        store, log = certified_store(), TransitionLog()
+        run_episode(GridWorld(T1, seed=1, ruleset=stick_count(2), server="grid/stick-count-2"), store, log, "hc")
+        result = run_episode(GridWorld(T1, seed=1), store, log, "t1")
+        stick = store.rules["craft:stick"]
+        demoted = replace(stick, rule_id="craft:stick@grid/stick-count-2", scope="grid/stick-count-2", status="demoted", revision_of="craft:stick")
+        self.assertEqual(
+            (result.success, stick.status, store.rules.get(demoted.rule_id)),
+            (True, "certified", demoted),
+        )
+
+    def test_quarantined_mismatch_replans_instead_of_contradicting(self):
+        world = Hurt(T1, seed=1, ruleset=stick_count(1), server="grid/stick-count-1")
+        log = TransitionLog()
+        result = run_episode(world, certified_store(), log, "hq")
+        self.assertEqual(
+            (result.success, log.contradictions(), {t.verdict for t in log if t.target == "stick"}),
+            (True, [], {"quarantined"}),
+        )
+
+    def test_replaying_a_saved_log_reproduces_every_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.jsonl"
+            log = TransitionLog(path)
+            run_episode(Hurt(T1, seed=1, ruleset=stick_count(1), server="grid/stick-count-1"), certified_store(), log, "hq")
+            run_episode(GridWorld(T1, seed=1, ruleset=stick_count(2), server="grid/stick-count-2"), certified_store(), log, "hc")
+            saved = TransitionLog(path)
+        self.assertEqual(
+            ({t.verdict for t in saved}, replay(saved)),
+            ({"match", "mismatch", "quarantined"}, [t.verdict for t in log]),
         )
 
 
