@@ -132,3 +132,67 @@ confirmed click. `craft` then clears the consumed grid slots locally with `windo
 do not resend them. The delta comes from `bot.inventory.items()`. The code never calls `bot.recipesFor`,
 `bot.recipesAll`, `bot.craft`, or `registry.recipes`. The test `the adapter never reads recipe data` fails if any
 adapter module mentions them.
+
+## Baseline B: rmalde's harness
+
+System B on Minecraft is [rmalde/minecraft-agent](https://github.com/rmalde/minecraft-agent) itself. The repository has
+no license, so none of its code is in ours. `setup/rmalde.sh` clones it at commit `78b40ed` into the gitignored
+`third_party/rmalde` and runs `npm ci` there. That also runs his postinstall, which patches mineflayer-pathfinder and
+prismarine-viewer inside his `node_modules`.
+
+```bash
+adapter/setup/rmalde.sh
+(set -a; . ~/.config/breach/env; set +a; python3 -m breach.rmalde runs/<name> --task T1 --change <change id>)
+```
+
+`python3 -m breach.rmalde` runs his `agent.mjs`: the general loop with the observation menu, recipes from
+`bot.recipesFor`, the planner that runs while Jev acts, and the per-key failure cooldown. His `nether-agent.mjs` follows
+his surveyed seed and has no tool crafting. The runner, from the repository root:
+
+1. Starts a model relay on 127.0.0.1 and his agent as bot `rmalde` on 127.0.0.1:25565. `agent.mjs` fixes the host and
+   version 1.16.5. It sends no commands, so the bot needs no op.
+2. Holds his loop with his `paused` file until the bot joins. Then it sets the task's start inventory through the
+   server console in `screen -S mc`: `clear rmalde`, then one `give` per item.
+3. Writes his `stop` file when the episode is over (goal held or budget spent), when his loop ends on its own (death,
+   kick, crash), or after `--seconds` (default 3600). His loop stops at the next action boundary. Then the runner
+   sends SIGINT, and his handler quits the bot.
+4. Converts `third_party/rmalde/runs/<name>/events.jsonl` into `runs/<name>` and prints the proof table.
+
+The run directory's name is also his `RUN_ID`. A name that exists is refused, because his agent resumes a saved
+`status.json`. Ctrl-C stops the runner and his agent together. Then convert by hand:
+`python3 -m breach.convert_rmalde third_party/rmalde/runs/<name>/events.jsonl runs/<name> --task T1`.
+
+| Variable | Read by | Value |
+|---|---|---|
+| `MODEL_RELAY` | his `models.mjs` | The runner's relay, on a free port |
+| `PLANNER_MODEL` | his `models.mjs` | `BREACH_LLM_MODEL`, else the endpoint's default Nemotron |
+| `MC_PORT`, `BOT_NAME`, `RUN_ID` | his `agent.mjs` | `25565`, `rmalde`, the run directory's name |
+| `FEEDBACK_FILE` | his `agent.mjs` | `runs/<name>/feedback.txt` with the task's goal. His `feedback.txt` holds dragon-fight hints. |
+| `STATUS_PORT`, `VIEWER_PORT` | his `agent.mjs` | Passed through. His defaults are 3078 and 3077, and the viewer listens on all interfaces. |
+| `BREACH_LLM_BASE_URL`, `BREACH_LLM_API_KEY`, `BREACH_LLM_MODEL` | the relay | Nemotron, as for `breach.llm` |
+| `JEV_API_KEY` | the relay | An OpenRouter key with access to `typesafe/jev-1.13` |
+
+Every variable ending in `_API_KEY` is removed from his agent's environment, so only the relay holds keys.
+
+His code makes two model calls, both in `models.mjs`. Without `MODEL_RELAY` it reads an OpenRouter key from Google
+Secret Manager through `gcloud` and calls `https://openrouter.ai` directly.
+
+| Call | When | Request | Through the relay |
+|---|---|---|---|
+| Planner, `plan()` | At start, then on a stage or dimension change, no useful action, two failures, a reached waypoint, or every 120 s | `POST /api/v1/chat/completions`: `PLANNER_MODEL`, his system prompt for the dragon route, the observation as JSON, `reasoning: {effort: "low"}`, `max_tokens` 1800, `response_format` `json_object`. It parses the reply as JSON with a string `objective`. | Goes to `BREACH_LLM_BASE_URL` with thinking off and without `reasoning`. A 400 or 422 is retried once without `response_format`. |
+| Jev, `decide()` | Once per action | `POST /api/alpha/decisions`: `typesafe/jev-1.13`, `state` (the observation as a JSON string), and one `choice` question whose criteria are the menu descriptions `a0`, `a1`, and so on. It reads `answers.action.choice`. | Goes to OpenRouter unchanged with `JEV_API_KEY`. Without it the relay answers 502, so his agent plans but never acts, and it logs a `loop_error` every 2 s. |
+
+`python3 -m breach.convert_rmalde <events.jsonl> runs/<name> --task T1 [--change <id>]` writes the run layout for B:
+
+- Each `result` event becomes one transition. Its action comes from the menu key of the `decision` before it.
+  `craft_<item>_<n>` is a craft predicted as n times the bundled delta. `<label>(x, y, z)` mines the block that its
+  description names. `place_table` is a place. Walking keys are moves. Any other key is its own action, which is not
+  checked.
+- Predictions come from `rules_from_ruleset(VANILLA)` with `bundled:` rule ids, as for B on the grid. A craft that the
+  table lacks, such as `stone_axe` or `oak_boat`, predicts nothing and is `ignored`.
+- Observed deltas come from consecutive inventory snapshots, with wood variants merged as the adapter merges them. The
+  episode starts from the first decision's inventory, because the `start` event comes before the runner's `clear`.
+- The episode ends at the first result that holds the goal, or at the task's budget.
+- `plan` and `plan_error` events become `model_calls.jsonl` records with the reply's token usage. Jev decisions are not
+  text-model calls.
+- His waits are actions. A wait between a refused craft and its retry makes the proof's immediate repeat 0.
