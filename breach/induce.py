@@ -30,6 +30,7 @@ JSON_SCHEMA = {
     "items": {"type": "object", "properties": _PROPERTIES, "required": list(_PROPERTIES), "additionalProperties": False},
 }
 _FENCE = re.compile(r"```\w*\s*(.*?)```", re.DOTALL)
+STATIONS = ("crafting_table", "furnace")
 
 
 def induce(
@@ -71,7 +72,13 @@ def _gate(reply: str, rule: Rule, server: str, k: int) -> tuple[list[Rule], list
             })
             if candidate.key != rule.key:
                 raise ValueError(f"action and target must stay {rule.action} {rule.target}")
-            if not isinstance(candidate.near, str | None):
+            if candidate.action == "craft":
+                # Anything else can neither be tested by a probe nor planned: an empty grid always shows an empty slot.
+                if candidate.delta.get(candidate.target, 0) <= 0 or not candidate.inputs:
+                    raise ValueError(f"a craft's delta consumes at least one item and produces {candidate.target}")
+                if candidate.near not in (None, *STATIONS):
+                    raise ValueError(f"near must be null or a station: {', '.join(STATIONS)}")
+            elif not isinstance(candidate.near, str | None):
                 raise ValueError("near must be a block name or null")
         except (KeyError, TypeError, ValueError) as exc:
             errors.append(f"item {n}: {exc!r}")
@@ -90,6 +97,11 @@ def _prompt(rule: Rule, counterexample: Transition, log_tail: list[Transition], 
     deltas = [rule.delta, c.predicted, c.observed] + [d for t in steps for d in (t.predicted, t.observed)]
     items = sorted({item for delta in deltas for item in delta})
     recent = "\n".join(f"- {t.action} {t.target}: predicted {j(t.predicted)}, observed {j(t.observed)}, {t.verdict}" for t in steps)
+    # The gate's own constraints, so the model is not refused for what it was never told.
+    craft = (
+        f"\nA craft's delta lists every item it consumes as a negative count and {rule.target} as a positive count; "
+        f'near is null, "crafting_table" or "furnace"; tool is null or one of {", ".join(t for t in TOOL_TIERS if t)}.'
+    ) if rule.action == "craft" else ""
     return f"""Server {c.server} contradicted a rule the agent had certified.
 
 Rule: {j(rule.to_dict())}
@@ -106,4 +118,4 @@ Propose at most {k} revisions of the rule that explain the observation, most lik
 Reply with only a JSON array of rule objects with the rule's fields. Keep action "{rule.action}" and target "{rule.target}".
 Set status "hypothesis", scope "{c.server}", source "induced", revision_of "{rule.rule_id}", evidence [],
 and rule_id "{rule.rule_id}#1", "{rule.rule_id}#2", and so on.
-Express every precondition through delta, tool, or near; free-text preconditions are rejected."""
+Express every precondition through delta, tool, or near; free-text preconditions are rejected.{craft}"""
