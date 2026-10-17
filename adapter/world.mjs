@@ -4,6 +4,7 @@ import mineflayer from 'mineflayer'
 import pathfinderPlugin from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { clear, fill, normalize, slotsFor } from './craft.mjs'
+import { glance } from './look.mjs'
 
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
@@ -103,7 +104,7 @@ export class MineflayerWorld {
   async #run (action, target, grid) {
     switch (action) {
       case 'move': return this.#move(target)
-      case 'look': return { ok: true, message: `${this.#inSight().length} blocks in sight` }
+      case 'look': return this.#look()
       case 'mine': return this.#mine(target)
       case 'place': return this.#place(target)
       case 'craft': return this.#craft(grid)
@@ -261,6 +262,12 @@ export class MineflayerWorld {
     // goto also resolves when no path exists. The pathfinder counts the goal as reached one block up too.
     const at = bot.entity.position.floored()
     if (!goal.isEnd(at) && !goal.isEnd(at.offset(0, 1, 0))) throw new Error(`no path ${label}`)
+  }
+
+  #look () {
+    const { x, y, z } = this.position()
+    const seen = glance((bx, by, bz) => this.bot.blockAt(new Vec3(bx, by, bz), false)?.name ?? null, x, y, z)
+    return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen }
   }
 
   // Non-air blocks within RADIUS with a clear line from the bot's eyes, nearest first.
