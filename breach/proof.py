@@ -55,20 +55,16 @@ def measure(entry: dict, system: str, log: TransitionLog, calls: list[dict], lat
     steps = list(log)
     rest = steps[steps.index(first) + 1:]
 
-    def same(t: Transition) -> bool:
-        return (t.action, t.target) == (first.action, first.target)
-
     def revises(t: Transition) -> bool:
         # The server copy is <rule_id>@<server> and each candidate <rule_id>#n, at any depth.
         return t.rule_id is not None and t.rule_id.startswith((f"{first.rule_id}@", f"{first.rule_id}#"))
 
-    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither,
-    # and not a test: a recovery test re-runs the step under a candidate's revised prediction.
+    # Reaching the same block again takes looks and moves, so the repeat is judged on the next step that is neither.
+    # Only the refuted rule_id repeats the refuted prediction; a revision's id, test or not, predicts something else.
     after = [t for t in rest if t.action not in ("move", "look")]
-    attempt = next((t for t in after if not t.test), None)
     return record | {
         "actions_after_contradiction": sum(t.rule_id == first.rule_id for t in after),
-        "immediate_repeat": int(attempt is not None and same(attempt)),
+        "immediate_repeat": int(bool(after) and after[0].rule_id == first.rule_id),
         "recovery_latency": next((n for n, t in enumerate([*rest, *later], 1) if revises(t) and t.verdict == "match"), None),
     }
 
