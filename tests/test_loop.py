@@ -8,7 +8,7 @@ from breach.log import TransitionLog
 from breach.loop import run_episode
 from breach.store import RuleStore
 from breach.tasks import H1, H2, T1, T2
-from breach.world import VANILLA, GridWorld, Recipe, Task, rules_from_ruleset
+from breach.world import VANILLA, GridWorld, Recipe, Task, rules_from_ruleset, within
 
 GOLDEN = Path(__file__).parent / "golden"
 
@@ -44,17 +44,36 @@ class Slippery(GridWorld):
         return self._result(False, "no path to the log", executed=False)
 
 
-class Tableless(GridWorld):
-    """Its first 3x3 craft is refused before the world is touched, as live run 3's was: no crafting table within reach."""
+class Refusing(GridWorld):
+    """Its first 3x3 craft is refused before the world is touched, by default as live run 3's was."""
 
-    refused = False
+    refused, reason = False, "no crafting table within 16 blocks"
 
     def _craft(self, action):
         recipe = self.ruleset.recipes.get(action.target or "")
         if self.refused or recipe is None or recipe.station is None:
             return super()._craft(action)
         self.refused = True
-        return self._result(False, "no crafting table within 16 blocks", executed=False)
+        return self._result(False, self.reason, executed=False)
+
+
+class Stubborn(GridWorld):
+    """A pathing world whose toward-move never arrives, as live run 4's stopped short, while its mine walks the last block."""
+
+    paths = True
+
+    def _mine(self, action):
+        self.position = next((p for p, b in self.blocks.items() if b == action.target and within(p, self.position)), self.position)
+        return super()._mine(action)
+
+
+class Walled(GridWorld):
+    """A pathing world whose look always shows a log 10 blocks east and whose heading moves all fail, as in live run 5."""
+
+    paths = True
+
+    def _look(self, action):
+        return self._result(True, "a log east", {"E": {"block": "log", "distance": 10}})
 
 
 class LoopTests(unittest.TestCase):
@@ -108,18 +127,38 @@ class LoopTests(unittest.TestCase):
             ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at mine:stone"),
         )
 
-    def test_a_craft_refused_without_a_station_is_a_failed_step_and_a_refused_recipe_still_contradicts(self):
-        log, changed_log = TransitionLog(), TransitionLog()
-        result = run_episode(Tableless(T1, seed=1), certified_store(), log, "t1")
+    def test_a_craft_refused_before_the_world_acts_is_a_failed_step_and_a_refused_recipe_still_contradicts(self):
+        refusals = []
+        for reason in ("no crafting table within 16 blocks", "ingredients not held"):
+            world, log = Refusing(T1, seed=1), TransitionLog()
+            world.reason = reason
+            result = run_episode(world, certified_store(), log, "t1")
+            refusals.append((result.reason, [(t.cls, t.verdict) for t in log if t.target == "wooden_pickaxe"], log.contradictions()))
         coal = replace(VANILLA, recipes={**VANILLA.recipes, "stone_pickaxe": Recipe({"cobblestone": 3, "stick": 2, "coal": 1}, 1)})
+        changed_log = TransitionLog()
         changed = run_episode(GridWorld(T2, seed=1, ruleset=coal, server="grid/stone-pickaxe-add-coal"), certified_store(), changed_log, "hc")
         self.assertEqual(
+            (refusals, changed.reason, [(t.target, t.cls) for t in changed_log.contradictions()]),
             (
-                result.reason, [(t.cls, t.verdict) for t in log if t.target == "wooden_pickaxe"], log.contradictions(),
-                changed.reason, [(t.target, t.cls) for t in changed_log.contradictions()],
+                [("goal", [("tolerant", "mismatch"), ("exact", "match")], [])] * 2,
+                "contradiction at craft:stone_pickaxe", [("stone_pickaxe", "exact")],
             ),
-            ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at craft:stone_pickaxe", [("stone_pickaxe", "exact")]),
         )
+
+    def test_a_failed_toward_move_leaves_the_mine_to_walk_the_last_block(self):
+        log, world = TransitionLog(), Stubborn(Task("p", "planks"), seed=1)
+        world.blocks = {(1, 1): "log"}
+        result = run_episode(world, certified_store(), log, "p")
+        self.assertEqual(
+            (result.reason, [(t.action, t.target, t.cls, t.verdict) for t in log]),
+            ("goal", [("move", "log", "tolerant", "mismatch"), ("mine", "log", "exact", "match"), ("craft", "planks", "exact", "match")]),
+        )
+
+    def test_exploring_a_pathing_world_moves_by_heading_and_turns_after_a_failed_move(self):
+        log, world = TransitionLog(), Walled(Task("p", "planks", budget=8), seed=1)
+        world.blocks = {}
+        result = run_episode(world, certified_store(), log, "p")
+        self.assertEqual((result.reason, [t.target for t in log if t.action == "move"]), ("budget", ["E8", "S1", "E8", "W2"]))
 
     def test_t1_seed_1_logs_the_golden_transitions(self):
         log = TransitionLog()

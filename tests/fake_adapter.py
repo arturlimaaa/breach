@@ -8,7 +8,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from breach.world import DIRECTIONS, RADIUS, Action, GridWorld, Observation, Position, StepResult, Task
+from breach.world import DIRECTIONS, HEADINGS, RADIUS, Action, GridWorld, Observation, Position, StepResult, Task, within
 
 Y = 64
 
@@ -24,9 +24,12 @@ def observation(obs: Observation) -> dict[str, Any]:
 
 def step(world: GridWorld, action: Action) -> StepResult:
     """One adapter step on the grid. The adapter's pathing takes one action each: `move {"toward": b}` stops next to the
-    nearest b in view, and `mine b` steps onto the nearest b within reach 1, where the grid mines.
+    nearest b in view, `move {"heading": h, "blocks": n}` goes up to n cells along h, and `mine b` steps onto the nearest b
+    within reach 1, where the grid mines.
 
     The adapter's mine walks to any b in sight; reach 1 is stricter so that a test proves the executor travelled first."""
+    if not world.done and action.name == "move" and isinstance(action.target, dict) and "heading" in action.target:
+        return heading_move(world, action.target["heading"], action.target["blocks"])
     toward = action.name == "move" and isinstance(action.target, dict)
     if world.done or not (toward or action.name == "mine" and action.target):
         return world.step(action)
@@ -45,6 +48,17 @@ def step(world: GridWorld, action: Action) -> StepResult:
         return StepResult(False, f"no {block} within {reach} blocks", None, world.observe(), executed=False)
     world.position = min(((cell[0] + dx, cell[1] + dz) for dx, dz in DIRECTIONS.values()), key=away)
     return StepResult(True, f"moved toward {block}", None, world.observe())
+
+
+def heading_move(world: GridWorld, heading: str, blocks: int) -> StepResult:
+    """The adapter's heading move as a teleport that stops short of the first block on the way; ok when it ends within one
+    cell of the point `blocks` along `heading`."""
+    (dx, dz), (x0, z0) = HEADINGS[heading], world.position
+    walked = next((k - 1 for k in range(1, blocks + 1) if (x0 + k * dx, z0 + k * dz) in world.blocks), blocks)
+    world.position = (x0 + walked * dx, z0 + walked * dz)
+    world.actions += 1
+    ok = within(world.position, (x0 + blocks * dx, z0 + blocks * dz))
+    return StepResult(ok, f"moved {walked} of {blocks} blocks {heading}", None, world.observe())
 
 
 def serve(make_world: Callable[[Task], GridWorld], on_step: Callable[[dict[str, Any]], None] = lambda body: None) -> ThreadingHTTPServer:

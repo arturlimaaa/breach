@@ -165,21 +165,30 @@ class HttpWorldTests(unittest.TestCase):
             ("craft", "stick", {"planks": 2}), TOWARD, MINE, CRAFT_PLANKS, PLACE_TABLE, ("craft", "wooden_pickaxe", {"planks": 3, "stick": 2}),
         ])
 
-    def test_a_failed_toward_move_is_logged_once_and_ends_the_episode(self):
+    def test_a_failed_toward_move_then_a_refused_mine_ends_the_episode(self):
         log = TransitionLog()
         result = run_episode(HttpWorld(self.adapter(only({}, Mirage)), T1), certified_vanilla(), log, "t1")
         self.assertEqual(
             (result.reason, [(t.action, t.target, t.cls, t.verdict) for t in log]),
-            ("no reachable log", [("move", "log", "tolerant", "mismatch")]),
+            ("no reachable log", [("move", "log", "tolerant", "mismatch"), ("mine", "log", "tolerant", "mismatch")]),
         )
 
-    def test_a_look_with_no_output_leads_to_a_bounded_spiral(self):
+    def test_the_fakes_heading_move_goes_along_the_heading_and_stops_short_of_a_block(self):
+        steps = []
+        world = HttpWorld(self.adapter(only({(3, 0): "stone"}), steps.append), T1)
+        results = [world.step(Action("move", target)) for target in ("E8", "N2")]
+        self.assertEqual(
+            ([(r.ok, r.observation.position) for r in results], wire(steps)),
+            ([(False, (2, 0)), (True, (2, -2))], [("move", {"heading": "E", "blocks": 8}, None), ("move", {"heading": "N", "blocks": 2}, None)]),
+        )
+
+    def test_a_look_with_no_output_leads_to_a_bounded_spiral_of_heading_moves(self):
         log = TransitionLog()
         result = run_episode(HttpWorld(self.adapter(only({}, Blind)), T1), certified_vanilla(), log, "t1")
-        legs = [("east", 1), ("south", 1), ("west", 2), ("north", 2), ("east", 3), ("south", 3), ("west", 4), ("north", 4)]
+        legs = ["E1", "S1", "W2", "N2", "E3", "S3", "W4", "N4"]
         self.assertEqual(
             (result.reason, [(t.action, t.target) for t in log]),
-            ("no reachable log", [("look", None), *(("move", d) for d, n in legs for _ in range(n))]),
+            ("no reachable log", [("look", None), *(("move", leg) for leg in legs)]),
         )
 
     def test_a_look_with_no_output_walks_the_spiral_until_a_log_is_in_view(self):
@@ -187,24 +196,25 @@ class HttpWorldTests(unittest.TestCase):
         result = run_episode(HttpWorld(self.adapter(only({(9, 0): "log"}, Blind)), PLANKS), certified_vanilla(), log, "p")
         self.assertEqual(
             (result.reason, [(t.action, t.target) for t in log]),
-            ("goal", [("look", None), ("move", "east"), ("move", "log"), ("mine", "log"), ("craft", "planks")]),
+            ("goal", [("look", None), ("move", "E1"), ("move", "log"), ("mine", "log"), ("craft", "planks")]),
         )
 
-    def test_a_look_with_headings_explores_as_on_the_grid_until_the_toward_move(self):
-        grid_log, http_log = TransitionLog(), TransitionLog()
-        run_episode(GridWorld(H2, seed=1), certified_vanilla(), grid_log, "h2")
-        result = run_episode(HttpWorld(self.adapter(), H2), certified_vanilla(), http_log, "h2")
-        explored = hashless(takewhile(lambda t: t.target != "log", http_log))
+    def test_a_look_with_headings_explores_by_heading_moves_until_the_toward_move(self):
+        log = TransitionLog()
+        result = run_episode(HttpWorld(self.adapter(), H2), certified_vanilla(), log, "h2")
+        explored = list(takewhile(lambda t: t.target != "log", log))
+        moves = [t.target for t in explored if t.action == "move"]
         self.assertEqual(
-            (result.reason, sum(t.action == "look" for t in explored) > 1, explored),
-            ("goal", True, hashless(grid_log)[:len(explored)]),
+            (result.reason, {t.action for t in explored}, sum(t.action == "look" for t in explored) > 1,
+             [m for m in moves if not re.fullmatch(r"[NESW]{1,2}[1-8]", m)]),
+            ("goal", {"look", "move"}, True, []),
         )
 
     def test_a_budget_spent_bringing_a_log_into_view_issues_no_toward_move(self):
         log = TransitionLog()
         world = HttpWorld(self.adapter(only({(9, 0): "log"}, Blind)), replace(PLANKS, budget=2))
         result = run_episode(world, certified_vanilla(), log, "p")
-        self.assertEqual((result.reason, [(t.action, t.target) for t in log]), ("budget", [("look", None), ("move", "east")]))
+        self.assertEqual((result.reason, [(t.action, t.target) for t in log]), ("budget", [("look", None), ("move", "E1")]))
 
     def test_a_remembered_block_out_of_view_is_walked_back_into_view_so_t3_finishes_on_seeds_1_to_10(self):
         reasons = []
