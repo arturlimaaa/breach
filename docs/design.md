@@ -90,7 +90,7 @@ Replaying the log reproduces every verdict. Log length equals the action count.
 
 ## Adapter contract (Node over local HTTP)
 
-- `POST /reset` body `{task}` → observation
+- `POST /reset` body `{task}` → observation plus `message` (the commands issued)
 - `GET /observe` → observation
 - `POST /step` body `{action, target}` → `{ok, message, output, events, observation}`
 
