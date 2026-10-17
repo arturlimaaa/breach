@@ -72,6 +72,22 @@ test('holding the goal count ends the episode with success', async (t) => {
   assert.deepEqual({ action_count, done, success }, { action_count: 2, done: true, success: true })
 })
 
+test('steps after success still run until the budget is spent', async (t) => {
+  const call = await start(t)
+  await call('POST', '/reset', task({ count: 1, budget: 3 }))
+  await call('POST', '/step', { action: 'mine', target: 'log' })
+  const { body: { observation, ...result } } = await call('POST', '/step', { action: 'mine', target: 'log' })
+  assert.deepEqual(
+    { result, action_count: observation.action_count, done: observation.done, success: observation.success },
+    {
+      result: { ok: true, message: 'mined log', output: { block_removed: true, collected: { log: 1 } }, events: [] },
+      action_count: 2,
+      done: true,
+      success: true
+    }
+  )
+})
+
 test('the budget ends the episode and later steps are refused without counting', async (t) => {
   const call = await start(t)
   await call('POST', '/reset', task({ budget: 1 }))
