@@ -33,14 +33,17 @@ class Hurt(GridWorld):
 
 
 class Slippery(GridWorld):
-    """Its first mine is refused before the world is touched, as the adapter's is when no path reaches the block."""
+    """Its first mine leaves the log in place: refused before the world is touched, as the adapter's is when no path
+    reaches the block, or with `dug` set, executed and put back, as the adapter reports a dig the server refused."""
 
-    missed = False
+    missed, dug = False, False
 
     def _mine(self, action):
         if self.missed:
             return super()._mine(action)
         self.missed = True
+        if self.dug:
+            return self._result(False, f"{action.target} is still there", {"block_removed": False, "collected": {}})
         return self._result(False, "no path to the log", executed=False)
 
 
@@ -118,13 +121,17 @@ class LoopTests(unittest.TestCase):
         )
 
     def test_a_refused_mine_is_a_failed_step_and_a_changed_drop_still_contradicts(self):
-        log = TransitionLog()
-        result = run_episode(Slippery(Task("p", "planks"), seed=1), certified_store(), log, "p")
+        refusals = []
+        for dug in (False, True):
+            world, log = Slippery(Task("p", "planks"), seed=1), TransitionLog()
+            world.dug = dug
+            result = run_episode(world, certified_store(), log, "p")
+            refusals.append((result.reason, [(t.cls, t.verdict) for t in log if t.action == "mine"], log.contradictions()))
         nothing = replace(VANILLA, drops={**VANILLA.drops, "stone": {}})
         dropped = run_episode(GridWorld(T2, seed=1, ruleset=nothing, server="grid/stone-drop-nothing"), certified_store(), TransitionLog(), "hc")
         self.assertEqual(
-            (result.reason, [(t.cls, t.verdict) for t in log if t.action == "mine"], log.contradictions(), dropped.reason),
-            ("goal", [("tolerant", "mismatch"), ("exact", "match")], [], "contradiction at mine:stone"),
+            (refusals, dropped.reason),
+            ([("goal", [("tolerant", "mismatch"), ("exact", "match")], [])] * 2, "contradiction at mine:stone"),
         )
 
     def test_a_craft_refused_before_the_world_acts_is_a_failed_step_and_a_refused_recipe_still_contradicts(self):

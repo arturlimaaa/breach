@@ -52,12 +52,13 @@ class BaselineBTests(unittest.TestCase):
         self.assertEqual((tag.target, default_choose(state, options)), ("furnace", "craft wooden_pickaxe x1"))
 
     def test_a_mine_that_left_its_block_is_logged_tolerant(self):
-        log = TransitionLog()
-        result = run_episode_b(Slippery(Task("p", "planks"), seed=1), log, "p", vanilla_plan)
-        self.assertEqual(
-            (result.success, [(t.cls, t.verdict) for t in log if t.action == "mine"][:1], log.contradictions()),
-            (True, [("tolerant", "mismatch")], []),
-        )
+        outcomes = []
+        for dug in (False, True):
+            world, log = Slippery(Task("p", "planks"), seed=1), TransitionLog()
+            world.dug = dug
+            result = run_episode_b(world, log, "p", vanilla_plan)
+            outcomes.append((result.success, [(t.cls, t.verdict) for t in log if t.action == "mine"][:1], log.contradictions()))
+        self.assertEqual(outcomes, [(True, [("tolerant", "mismatch")], [])] * 2)
 
     def test_budget_exhausted_on_arrival_logs_no_phantom_step(self):
         full = TransitionLog()

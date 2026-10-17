@@ -69,7 +69,7 @@ class Executor:
             # A probe consumes nothing; a test probe the world ran is checked exactly on what the output slot shows.
             observed, cls = result.output or {}, "exact" if result.executed else "tolerant"
         else:
-            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.executed)
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.executed, result.output)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,

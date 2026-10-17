@@ -148,7 +148,7 @@ def step_and_log(world: GridWorld, log: TransitionLog, episode: str, action: Act
     predicted = dict(rule.delta) if rule else {}
     observed = diff(before.inventory, result.observation.inventory)
     target = rule.target if rule else action.target
-    cls = classify(action.name, target, result.executed)
+    cls = classify(action.name, target, result.executed, result.output)
     log.append(Transition(
         episode, world.actions, world.server, obs_hash(before), action.name, target,
         f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
