@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from functools import partial
 from itertools import count, pairwise, repeat
 from typing import Any, Callable, Iterator
 
@@ -53,6 +54,22 @@ def default_choose(state: State, options: dict[str, Option]) -> str:
     return min(options, key=rank)
 
 
+def step_and_log(world: GridWorld, log: TransitionLog, episode: str, action: Action, rule: Rule | None = None) -> StepResult:
+    """Take one action and log it the executor's way, predicting the bundled `rule`'s delta."""
+    before = world.observe()
+    result = world.step(action)
+    predicted = dict(rule.delta) if rule else {}
+    observed = diff(before.inventory, result.observation.inventory)
+    target = rule.target if rule else action.target
+    cls = classify(action.name, target)
+    log.append(Transition(
+        episode, world.actions, world.server, obs_hash(before), action.name, target,
+        f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
+        verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
+    ))
+    return result
+
+
 def run_episode_b(
     world: GridWorld,
     log: TransitionLog,
@@ -68,20 +85,7 @@ def run_episode_b(
     plan: State = {}
     calls = 0
     spiral = _spiral()
-
-    def act(action: Action, rule: Rule | None = None) -> StepResult:
-        before = world.observe()
-        result = world.step(action)
-        predicted = dict(rule.delta) if rule else {}
-        observed = diff(before.inventory, result.observation.inventory)
-        target = rule.target if rule else action.target
-        cls = classify(action.name, target)
-        log.append(Transition(
-            episode, world.actions, world.server, obs_hash(before), action.name, target,
-            f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
-            verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
-        ))
-        return result
+    act = partial(step_and_log, world, log, episode)
 
     # ponytail: a wait is a decision without a world action, so decisions are capped at the action budget.
     for step in range(1, world.task.budget + 1):
