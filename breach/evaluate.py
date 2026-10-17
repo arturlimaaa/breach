@@ -35,7 +35,7 @@ def run_jobs(
     shared = store_factory() if carry_memory else None
     episodes = []
     for task, seed, server, ruleset, change in jobs:
-        episode = "-".join(part for part in (task.task_id, change, f"s{seed}") if part)
+        episode = "-".join(part for part in (change, task.task_id, f"s{seed}") if part)
         log_path = out_dir / f"{episode}.jsonl"
         log_path.touch(exist_ok=False)  # TransitionLog appends, so a repeated job would merge two episodes
         store = shared if carry_memory else store_factory()
