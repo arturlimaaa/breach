@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import minecraftData from 'minecraft-data'
 import pathfinderPlugin from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { MineflayerWorld } from '../world.mjs'
@@ -27,7 +28,6 @@ function miningBot (feet, log, drop, reachable = true) {
       bot.entities[1] = { name: 'item', position: drop }
     },
     pathfinder: {
-      bestHarvestTool: () => null,
       setGoal (goal) { this.goal = goal },
       async goto (goal) {
         bot.goals.push(goal.constructor.name)
@@ -65,7 +65,6 @@ function forestBot (feet, logs, blocked = []) {
       items = [{ name: 'oak_log', count: bot.dug.length }]
     },
     pathfinder: {
-      bestHarvestTool: () => null,
       setGoal () {},
       async goto (goal) {
         const [{ x, z }] = goal.goals
@@ -323,7 +322,7 @@ test('a trunk under leaves one block away is in the observation and minable', as
       cells.delete(String(block.position))
       items = [{ name: 'oak_log', count: 1 }]
     },
-    pathfinder: { bestHarvestTool: () => null, setGoal () {}, goto: async () => {} }
+    pathfinder: { setGoal () {}, goto: async () => {} }
   })
   const world = new MineflayerWorld(bot, 'test')
   const logs = world.visible().filter(block => block.block === 'log')
@@ -348,4 +347,74 @@ test('the mine after a toward-move digs the block the move reached, though anoth
     { ok: result.ok, dug: bot.dug, paths: bot.paths },
     { ok: true, dug: [b], paths: [[6, 0], [5, 1]] }
   )
+})
+
+// Stone at `stone` with the game's harvest tools; the bot at (0.5, 64, 0.5) holds `held` (item names). Digging stone
+// with a pickaxe equipped drops cobblestone. A path, if one is asked for, is recorded and goes nowhere.
+function quarryBot (stone, held) {
+  const data = minecraftData('1.16.5')
+  const times = { [data.itemsByName.wooden_pickaxe.id]: 1150, [data.itemsByName.stone_pickaxe.id]: 600 }
+  let standing = true
+  let items = held.map(name => ({ name, type: data.itemsByName[name].id, count: 1 }))
+  const block = {
+    name: 'stone',
+    position: stone,
+    harvestTools: data.blocksByName.stone.harvestTools,
+    digTime: type => times[type] ?? 7500
+  }
+  const bot = Object.assign(new EventEmitter(), {
+    paths: [],
+    equipped: [],
+    dug: [],
+    entity: { position: new Vec3(0.5, 64, 0.5) },
+    entities: {},
+    inventory: { items: () => items },
+    findBlocks: () => standing ? [stone] : [],
+    blockAt: at => standing && at.equals(stone) ? block : { name: 'air', position: at },
+    equip: async item => { bot.equipped.push(item.name) },
+    dig: async () => {
+      standing = false
+      bot.dug.push(stone)
+      if (bot.equipped.length) items = [...items, { name: 'cobblestone', type: 0, count: 1 }]
+    },
+    pathfinder: { setGoal () {}, goto: async goal => { bot.paths.push(goal.constructor.name) } }
+  })
+  return bot
+}
+
+test('mine stone equips the wooden pickaxe held, digs, and says so', async () => {
+  const bot = quarryBot(new Vec3(1, 64, 0), ['oak_planks', 'wooden_pickaxe'])
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'stone' })
+  assert.deepEqual(
+    { result, equipped: bot.equipped },
+    {
+      result: {
+        ok: true,
+        message: 'mined stone with wooden_pickaxe',
+        output: { block_removed: true, collected: { cobblestone: 1 }, tool: 'wooden_pickaxe' },
+        events: [],
+        executed: true
+      },
+      equipped: ['wooden_pickaxe']
+    }
+  )
+})
+
+test('mine stone with no pickaxe held is refused before walking or digging, executed false', async () => {
+  const bot = quarryBot(new Vec3(5, 64, 0), ['oak_planks'])
+  const result = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'stone' })
+  assert.deepEqual(
+    { result, paths: bot.paths, dug: bot.dug },
+    {
+      result: { ok: false, message: 'mine: no held tool harvests stone', output: null, events: [], executed: false },
+      paths: [],
+      dug: []
+    }
+  )
+})
+
+test('mine stone with two pickaxes held equips the faster one', async () => {
+  const bot = quarryBot(new Vec3(1, 64, 0), ['wooden_pickaxe', 'stone_pickaxe'])
+  const { message } = await new MineflayerWorld(bot, 'test').act({ action: 'mine', target: 'stone' })
+  assert.deepEqual({ message, equipped: bot.equipped }, { message: 'mined stone with stone_pickaxe', equipped: ['stone_pickaxe'] })
 })
