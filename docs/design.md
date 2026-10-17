@@ -90,7 +90,7 @@ Replaying the log reproduces every verdict. Log length equals the action count.
 
 ## Adapter contract (Node over local HTTP)
 
-- `POST /reset` body `{task}` → observation
+- `POST /reset` body `{task}` → observation plus `message` (the commands issued)
 - `GET /observe` → observation
 - `POST /step` body `{action, target}` → `{ok, message, output, events, observation}`
 
@@ -164,8 +164,18 @@ recordings.
 - Repo name and GitHub remote.
 - Decide whether the comparison with rmalde's harness is published.
 
+## Site data contract
+
+`runs/<run>/status.json` is rewritten by the executor after every step and
+rule status change (atomic rename); `site/README.md` is the field contract
+and `site/fixtures/` holds worked examples. `proof.json` carries `episodes`,
+`rows` (per system: one worst row, then mean rows per task set), and per
+system `worst_case: {episode, recovery_latency}` and `aggregate`. The runner
+keeps `runs/latest` as a symlink to the newest run.
+
 ## Gate commands
 
-- `python3 -m unittest discover -s tests` (core)
-- `node --test` in `adapter/` (adapter)
+- `python3 -m unittest discover -s tests -t .` (core)
+- `node --test` in `adapter/` after `npm ci` (adapter)
+- `node site/check.mjs` (site)
 - `python3 -m breach.proof runs/<run>` (claims)

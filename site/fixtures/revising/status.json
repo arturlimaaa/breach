@@ -1,0 +1,27 @@
+{
+  "episode": "stick-count-2-hr-s1",
+  "server": "grid/stick-count-2",
+  "goal": "stone_pickaxe",
+  "step": 12,
+  "budget": 250,
+  "started": "2026-10-17T20:15:02.000Z",
+  "updated": "2026-10-17T20:15:04.597Z",
+  "plan": [
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "done"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "done"},
+    {"rule_id": "craft:crafting_table", "action": "craft", "target": "crafting_table", "status": "done"},
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "done"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "done"},
+    {"rule_id": "craft:stick", "action": "craft", "target": "stick", "status": "done"},
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "aborted"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "aborted"},
+    {"rule_id": "craft:wooden_pickaxe", "action": "craft", "target": "wooden_pickaxe", "status": "aborted"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "aborted"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "aborted"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "aborted"},
+    {"rule_id": "craft:stone_pickaxe", "action": "craft", "target": "stone_pickaxe", "status": "aborted"}
+  ],
+  "last": {"action": "craft", "target": "stick", "rule_id": "craft:stick", "predicted": {"planks": -2, "stick": 4}, "observed": {"planks": -2, "stick": 2}, "verdict": "mismatch"},
+  "rule": {"rule_id": "craft:stick@grid/stick-count-2", "status": "revising", "evidence": 6, "note": "3 candidates; testing stick +2 first by probe"},
+  "model": {"calls": 1, "last_latency_ms": 2140}
+}

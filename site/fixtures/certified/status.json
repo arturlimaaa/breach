@@ -1,0 +1,27 @@
+{
+  "episode": "stick-count-2-hr-s1",
+  "server": "grid/stick-count-2",
+  "goal": "stone_pickaxe",
+  "step": 11,
+  "budget": 250,
+  "started": "2026-10-17T20:15:02.000Z",
+  "updated": "2026-10-17T20:15:02.418Z",
+  "plan": [
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "done"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "done"},
+    {"rule_id": "craft:crafting_table", "action": "craft", "target": "crafting_table", "status": "done"},
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "done"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "done"},
+    {"rule_id": "craft:stick", "action": "craft", "target": "stick", "status": "current"},
+    {"rule_id": "mine:log", "action": "mine", "target": "log", "status": "pending"},
+    {"rule_id": "craft:planks", "action": "craft", "target": "planks", "status": "pending"},
+    {"rule_id": "craft:wooden_pickaxe", "action": "craft", "target": "wooden_pickaxe", "status": "pending"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "pending"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "pending"},
+    {"rule_id": "mine:stone", "action": "mine", "target": "stone", "status": "pending"},
+    {"rule_id": "craft:stone_pickaxe", "action": "craft", "target": "stone_pickaxe", "status": "pending"}
+  ],
+  "last": {"action": "craft", "target": "planks", "rule_id": "craft:planks", "predicted": {"log": -1, "planks": 4}, "observed": {"log": -1, "planks": 4}, "verdict": "match"},
+  "rule": {"rule_id": "craft:planks", "status": "certified", "evidence": 18, "note": ""},
+  "model": {"calls": 0, "last_latency_ms": null}
+}

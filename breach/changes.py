@@ -90,21 +90,30 @@ def _plan(goal: str, ruleset: Ruleset) -> list[Step] | None:
 
 
 def goal_for(change: Change, ruleset: Ruleset = VANILLA) -> str | None:
-    """Recipe output with the fewest plan steps under the changed rules whose plan uses the changed rule."""
+    """Recipe output with the fewest plan steps under the changed rules whose plan uses the changed rule.
+
+    Goals that use it before their last step win, so the contradiction leaves steps to recover in. Without
+    one, every plan that uses it ends on it: for a recipe change, that is the recipe's own output.
+    """
     changed = apply(change, ruleset)
     rule_id = f"mine:{change.block}" if change.kind == "drop" else f"craft:{change.recipe}"
     plans = {goal: _plan(goal, changed) for goal in ruleset.recipes}
     uses = [goal for goal, steps in plans.items() if steps and any(s.rule_id == rule_id for s in steps)]
-    return min(uses, key=lambda goal: len(plans[goal]), default=None)
+    early = [goal for goal in uses if any(s.rule_id == rule_id for s in plans[goal][:-1])]
+    return min(early or uses, key=lambda goal: len(plans[goal]), default=None)
 
 
 def benchmark(ruleset: Ruleset = VANILLA) -> list[tuple[Change, str]]:
     return [(change, goal) for change in enumerate_class(ruleset) if (goal := goal_for(change, ruleset))]
 
 
-def write_ruleset(change: Change, path: Path) -> None:
+def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(apply(change, VANILLA)), indent=2) + "\n", encoding="utf-8")
+    path.write_text(text + "\n", encoding="utf-8")
+
+
+def write_ruleset(change: Change, path: Path) -> None:
+    _write(path, json.dumps(asdict(apply(change, VANILLA)), indent=2))
 
 
 def load_ruleset(path: Path) -> Ruleset:
@@ -116,13 +125,21 @@ def _id(name: str) -> str:
     return VANILLA_IDS.get(name, name)
 
 
+def _shapeless(inputs: dict[str, int], item: str, count: int) -> dict[str, Any]:
+    return {
+        "type": "minecraft:crafting_shapeless",
+        "ingredients": [{"item": f"minecraft:{_id(i)}"} for i, n in inputs.items() for _ in range(n)],
+        "result": {"item": f"minecraft:{_id(item)}", "count": count},
+    }
+
+
 def write_datapack(change: Change, directory: Path) -> None:
     """Minecraft Java 1.16.5 datapack that overrides the changed recipe or block loot table."""
     changed = apply(change, VANILLA)
+    files: dict[str, Any] = {"pack.mcmeta": {"pack": {"pack_format": 6, "description": f"breach change {change.id}"}}}
+    recipes, note = {}, ""
     if change.kind == "drop":
-        overridden = "none"
-        path = f"loot_tables/blocks/{_id(change.block)}.json"
-        data = {
+        files[f"data/minecraft/loot_tables/blocks/{_id(change.block)}.json"] = {
             "type": "minecraft:block",
             "pools": [
                 {"rolls": 1, "entries": [{"type": "minecraft:item", "name": f"minecraft:{_id(item)}", "functions": [{"function": "minecraft:set_count", "count": n}]}]}
@@ -131,21 +148,19 @@ def write_datapack(change: Change, directory: Path) -> None:
         }
     else:
         recipe = changed.recipes[change.recipe]
-        overridden = f"minecraft:{_id(change.recipe)}"
-        path = f"recipes/{_id(change.recipe)}.json"
-        data = {
-            "type": "minecraft:crafting_shapeless",
-            "ingredients": [{"item": f"minecraft:{_id(item)}"} for item, n in recipe.inputs.items() for _ in range(n)],
-            "result": {"item": f"minecraft:{_id(change.recipe)}", "count": recipe.output},
-        }
-    files = {
-        "pack.mcmeta": json.dumps({"pack": {"pack_format": 6, "description": f"breach change {change.id}"}}, indent=2),
-        f"data/minecraft/{path}": json.dumps(data, indent=2),
-        "data/minecraft/recipes/README.txt": f"Vanilla recipe ids overridden by {change.id}: {overridden}",
-    }
-    for name, text in files.items():
-        (directory / name).parent.mkdir(parents=True, exist_ok=True)
-        (directory / name).write_text(text + "\n", encoding="utf-8")
+        recipes[change.recipe] = _shapeless(recipe.inputs, change.recipe, recipe.output)
+        if recipe.inputs == {"log": 4}:
+            recipes["oak_wood"] = _shapeless({"barrier": 4}, "oak_wood", 3)
+            note = (
+                "\nminecraft:oak_wood now takes 4 barriers. Vanilla oak_wood is 4 oak logs in a 2x2, the same grid as the"
+                " changed recipe, and 1.16.5 does not define which of two matching recipes wins."
+            )
+    for item, data in recipes.items():
+        files[f"data/minecraft/recipes/{_id(item)}.json"] = data
+    overridden = ", ".join(f"minecraft:{_id(item)}" for item in recipes) or "none"
+    files["data/minecraft/recipes/README.txt"] = f"Vanilla recipe ids overridden by {change.id}: {overridden}{note}"
+    for name, content in files.items():
+        _write(directory / name, content if isinstance(content, str) else json.dumps(content, indent=2))
 
 
 if __name__ == "__main__":
@@ -154,6 +169,7 @@ if __name__ == "__main__":
     out, rows = Path(sys.argv[1]), benchmark()
     print(f"{'change':<36} {'goal':<15} steps")
     for change, goal in rows:
+        _write(out / change.id / "change.json", json.dumps(change.to_dict(), indent=2))
         write_ruleset(change, out / change.id / "ruleset.json")
         write_datapack(change, out / change.id / "datapack")
         print(f"{change.id:<36} {goal:<15} {len(_plan(goal, apply(change, VANILLA)))}")
