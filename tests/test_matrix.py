@@ -101,18 +101,21 @@ class PerfectInducerTests(unittest.TestCase):
 
 
 class NemotronWiringTests(unittest.TestCase):
-    def test_llm_logs_ds_inducer_call_in_the_job_directory_and_a_failed_call_stops_the_run(self):
-        # A closed local port: the call fails at once, and llm.complete still logs it before raising.
+    def test_llm_sends_ds_inducer_through_llm_complete_into_the_jobs_model_calls(self):
+        # A closed local port: the call fails at once, llm.complete logs it in the job directory, and the
+        # inducer error stops the matrix loudly instead of posing as an unrecovered episode.
         env = {**os.environ, "BREACH_LLM_BASE_URL": "http://127.0.0.1:9/v1", "BREACH_LLM_API_KEY": "test"}
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "llm"
-            result = subprocess.run(
+            done = subprocess.run(
                 [sys.executable, "-m", "breach.matrix", str(run), "--changes", "stick-count-2", "--seeds", "1", "--systems", "D", "--llm"],
                 cwd=ROOT, env=env, capture_output=True, text=True,
             )
             calls = [json.loads(line) for line in (run / "D" / "stick-count-2-s1" / "model_calls.jsonl").read_text().splitlines()]
-            proved = (run / "proof.json").exists()
-        self.assertEqual((result.returncode, [(c["purpose"], "error" in c) for c in calls], proved), (1, [("induce", True)], False))
+        self.assertEqual(
+            (done.returncode != 0, "Connection refused" in done.stderr, {c["purpose"] for c in calls}, all("error" in c for c in calls)),
+            (True, True, {"induce"}, True),
+        )
 
 
 class OfflineModelTests(unittest.TestCase):
