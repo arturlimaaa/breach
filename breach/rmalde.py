@@ -102,7 +102,7 @@ def run(out_dir: Path, task: Task, seconds: float, change: str | None = None) ->
     def finished() -> bool:
         log = events()
         ep = episode(log, task)
-        return over(ep.end, len(ep.steps), task) or any(e["type"] in ENDS for e in log)
+        return over(ep.end, ep.decisions, task) or any(e["type"] in ENDS for e in log)
 
     agent = subprocess.Popen(["node", "agent.mjs"], cwd=HARNESS, env=env)
     try:
