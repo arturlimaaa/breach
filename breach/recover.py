@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from itertools import count
+from time import perf_counter
 from typing import TYPE_CHECKING
 
 from .certify import certify, demote, replayed
@@ -13,6 +14,7 @@ from .log import Transition
 from .planner import Step, plan
 from .rules import Rule
 from .select import order_tests
+from .status import change, shown
 from .store import RuleStore
 from .world import Action
 
@@ -31,34 +33,51 @@ def recover(ex: Executor, record: Rule, counterexample: Transition) -> str | Non
     untested candidates of a round the budget cut short, or with the rule unrecovered after the last round.
     """
     server, error = ex.world.server, None
+
+    def settle(note: str) -> None:
+        ex.status.rule = shown(ex.store.rules[record.rule_id], note)
+        ex.status.emit(ex)
+
     while ex.rounds[record.key] < ROUNDS:
         ex.rounds[record.key] += 1
+        note, start = None, perf_counter()
         try:
             proposed = ex.induce(record, counterexample, [t for t in ex.log if t.episode == ex.episode])
         except Exception as exc:  # a transport or reply failure; llm.complete has already logged the call
-            error = f"inducer error: {exc}"
-            continue
+            proposed, note = [], f"inducer error: {exc}"
+            error = note
+        ex.status.calls += 1
+        ex.status.latency_ms = round((perf_counter() - start) * 1000)
         fresh = (f"{record.rule_id}#{n}" for n in count(1) if f"{record.rule_id}#{n}" not in ex.store.rules)
         # The bookkeeping is ours whatever the inducer returns: a global candidate would plan on every server.
         candidates = [replace(c, rule_id=next(fresh), status="hypothesis", scope=server, revision_of=record.rule_id) for c in proposed[:K]]
         for candidate in candidates:
             ex.store.add(candidate)
+        heard = f"{len(candidates)} candidate{'' if len(candidates) == 1 else 's'}"
+        ex.status.rule = shown(record, note or heard, "revising")
+        ex.status.emit(ex)
         for candidate in order_tests(candidates, ex.observe().inventory):
             passed = _judged(ex, candidate, counterexample)
+            how = "the refuting step" if passed is not None else ("a probe" if candidate.action == "craft" else "a mine")
+            ex.status.rule = shown(record, f"{heard}; testing {change(candidate)} by {how}", "revising")
+            ex.status.emit(ex)
             if passed is None:
                 t = _test(ex, candidate)
                 if isinstance(t, str):
+                    settle(t)
                     return t
                 if t is None and ex.world.done:
+                    settle("the budget ran out before every candidate was tested")
                     return None
                 passed = t is not None and t.ok and t.verdict == "match"
             if passed:
                 adopt(ex.store, candidate)
-                certify(ex.store, ex.log, record.rule_id)
+                settle(certify(ex.store, ex.log, record.rule_id).reason)
                 return None
             # ponytail: a quarantined test counts as failed; retest it if hazards make that common.
             demote(ex.store, candidate.rule_id, server)
     ex.unrecovered.append(error or f"unrecoverable {record.action}:{record.target}")
+    settle(ex.unrecovered[-1])
     return None
 
 

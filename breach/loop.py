@@ -9,6 +9,7 @@ from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
 from .recover import Induce, adopt, recover
 from .rules import Rule
+from .status import Status, Writer, shown
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
@@ -28,14 +29,17 @@ class Executor:
     """
 
     def __init__(
-        self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, check: bool = True
+        self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str,
+        induce: Induce | None = None, check: bool = True, status: Writer | None = None,
     ):
         self.world, self.store, self.log, self.episode = world, store, log, episode
         self.induce, self.check = induce, check
         self.known: dict[Position, str] = {}
         self.steps = 0
+        self.last: Transition | None = None
         self.rounds: Counter[tuple[str, str]] = Counter()
         self.unrecovered: list[str] = []
+        self.status = Status(status)
 
     def record(self, rule: Rule) -> Rule:
         """This server's record for the rule's key: a candidate revises its record, and the record revises the global rule."""
@@ -69,6 +73,10 @@ class Executor:
             result.ok, result.events,
         )
         self.log.append(transition)
+        self.last = transition
+        if self.status.acted(step):
+            self.status.rule = shown(self.store.rules[step.rule_id])
+        self.status.emit(self)
         return transition, result
 
     def nearest(self, block: str) -> Position | None:
@@ -116,6 +124,14 @@ class Executor:
         return False
 
     def run(self) -> EpisodeResult:
+        reason = self.pursue()
+        self.status.abort()
+        self.status.emit(self)
+        # The world decides the outcome: a refuting step can also meet the goal.
+        return EpisodeResult(self.world.success, self.world.actions, reason)
+
+    def pursue(self) -> str:
+        """Plan and act until the goal or the budget; the reason the episode ends."""
         task = self.world.task
         while not self.world.done:
             inventory, server = dict(self.observe().inventory), self.world.server
@@ -123,12 +139,14 @@ class Executor:
             if steps is None:
                 steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance)
             if steps is None:
-                return EpisodeResult(self.world.success, self.world.actions, self.unrecovered[-1] if self.unrecovered else "no certified plan")
+                return self.unrecovered[-1] if self.unrecovered else "no certified plan"
+            self.status.planned(steps)
+            self.status.emit(self)
             hit = self.execute(steps)
             reason = self.refuted(hit) if isinstance(hit, Transition) else hit
             if reason is not None:
-                return EpisodeResult(self.world.success, self.world.actions, reason)
-        return EpisodeResult(self.world.success, self.world.actions, "goal" if self.world.success else "budget")
+                return reason
+        return "goal" if self.world.success else "budget"
 
     def execute(self, steps: list[Step]) -> Transition | str | None:
         """Act out `steps`. Returns the step that refuted its rule, a reason the episode cannot go on, or None to replan."""
@@ -157,17 +175,21 @@ class Executor:
         record = self.record(rule)
         if record is not rule:
             adopt(self.store, rule)
-            certify(self.store, self.log, record.rule_id)
-            return True
-        # A certified rule plans as an ordinary step.
-        return certify(self.store, self.log, rule_id).reason == "certified"
+        certification = certify(self.store, self.log, record.rule_id)
+        self.status.rule = shown(certification.rule, certification.reason)
+        self.status.emit(self)
+        # An adopted candidate plans under its record from now on, and a certified rule as an ordinary step.
+        return record is not rule or certification.reason == "certified"
 
     def refuted(self, transition: Transition) -> str | None:
         """Demote the refuted rule on this server, then recover its record. Without an inducer a refuted certified rule ends the episode."""
         demoted = demote(self.store, transition.rule_id, self.world.server)
+        record = self.record(demoted)
+        self.status.abort()
+        self.status.rule = shown(record, f"contradicted at {transition.episode}/{transition.step}")
+        self.status.emit(self)
         if self.induce is None:
             return None if transition.test else f"contradiction at {transition.rule_id}"
-        record = self.record(demoted)
         # Candidates a round left untested when the budget ran out get tested by planning before the model is asked again.
         if any(r.key == record.key and r.status == "hypothesis" for r in self.store.usable(self.world.server, hypotheses=True)):
             return None
@@ -182,10 +204,12 @@ def _spiral_legs():
             yield direction, n
 
 
-def run_episode(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None) -> EpisodeResult:
-    return Executor(world, store, log, episode, induce).run()
+def run_episode(
+    world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, status: Writer | None = None,
+) -> EpisodeResult:
+    return Executor(world, store, log, episode, induce, status=status).run()
 
 
-def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str) -> EpisodeResult:
+def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, status: Writer | None = None) -> EpisodeResult:
     """System C: rules without the step check. It follows each plan to its end and replans only then."""
-    return Executor(world, store, log, episode, check=False).run()
+    return Executor(world, store, log, episode, check=False, status=status).run()
