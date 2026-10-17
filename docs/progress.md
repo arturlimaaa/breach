@@ -20,7 +20,7 @@ and the orchestrator read the output, then the branch is merged into
 | M2 Nemotron client + inducer + test ordering | `al/m2-llm` | merged 7d5435a | fake-transport tests pin provider-shaped requests (NVIDIA, Crusoe, Ollama); schema gate; model_calls.jsonl |
 | M3 proof follow-up (worst_case and aggregate keys; success recomputed from the log) | `al/m3-proof` | running | fixture where the manifest lies is refused |
 | M3 ring-sample look for H2 | `al/m3-look` | merged 903f260, 65 tests | H2 seeds 1 to 5 finish in 74 to 187 actions (blind spiral: never within 300); T1 to T3 and H1 unchanged |
-| M7 site + OBS banner | `al/m7-site` | merged 071d77f; `node site/check.mjs` 7 pass | status.json and proof.json contracts in site/README.md; banner follows a rewrite within 600 ms |
+| M7 site + OBS banner | `al/m7-site` | merged 071d77f, then 661ac1c (multi-system proof.json); `node site/check.mjs` 8 pass | status.json and proof.json contracts in site/README.md; banner follows a rewrite within 600 ms |
 | M4 adapter follow-up (`place` action, vanilla shape table by multiset) | `al/m4-adapter` | merged 2539e1e, 24 Node tests | `place` picks a free cardinal neighbour at foot level; a count map with a vanilla multiset takes its shape |
 | M4 live smoke (T1's steps by curl against the running server) | `al/m4-adapter` | running | transcript with ok, output, inventory delta per step; border set from the bot |
 | M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
@@ -35,6 +35,10 @@ against 44 to 149 (measured by the look lane, not committed). Wire systems A
 and C into `evaluate.run_jobs` after their lanes merge. Executor-side
 placement of the crafting table (grid `place` action, executor near-check, B
 menu option) is a lane after recovery lands.
+
+Tooling: the Playwright MCP browser is shared between every agent in the
+session and can only write under /Users/artur/schema-voyager; agents take
+screenshots with a headless Chrome and a throwaway profile in their scratchpad.
 
 Server: the vanilla 1.16.5 server runs from `adapter/server/` (seed 12345,
 offline mode, port 25565, `eula=true` set on 2026-10-17) inside the detached
