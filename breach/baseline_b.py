@@ -7,6 +7,7 @@ from typing import Any, Callable, Iterator
 
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .rules import TOOL_TIERS, Rule
+from .verify import classify
 from .world import RADIUS, VANILLA, Action, GridWorld, Observation, Position, StepResult, held_tier, rules_from_ruleset
 
 COOLDOWN = 5
@@ -73,9 +74,10 @@ def run_episode_b(
         result = world.step(action)
         predicted = dict(rule.delta) if rule else {}
         observed = diff(before.inventory, result.observation.inventory)
-        cls = "exact" if rule else "tolerant"
+        target = rule.target if rule else action.target
+        cls = classify(action.name, target)
         log.append(Transition(
-            episode, world.actions, world.server, obs_hash(before), action.name, rule.target if rule else action.target,
+            episode, world.actions, world.server, obs_hash(before), action.name, target,
             f"bundled:{rule.rule_id}" if rule else None, predicted, observed, cls,
             verdict(cls, predicted, observed, result.ok, result.events), ok=result.ok, events=list(result.events),
         ))
