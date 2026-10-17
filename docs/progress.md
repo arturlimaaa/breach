@@ -15,9 +15,10 @@ and the orchestrator read the output, then the branch is merged into
 | M4 Mineflayer adapter + server setup | `al/m4-adapter` | running | `node --test` with a fake bot; live T1 waits on the EULA |
 | M3 baseline B (rmalde architecture, grid) | `al/m3-baseline-b` | merged 1048e7b; follow-up (shared verifier classes, log-convention tests) merged cc9a544, 62 tests | B finishes vanilla T1; re-crafts under a count change; stalls under a precondition change |
 | M3 evaluator + proof script | `al/m3-proof` | merged 78fc94e | proof.json and results table from a run directory |
-| M3 matrix runner (B and D × every change × seeds, HS episodes) | `al/m3-proof` | running | `python3 -m breach.matrix runs/<name> --seeds 1 2 --systems B D` prints the table |
-| M3 change-class follow-up (goal choice mid-plan, oak_wood barrier override, change.json) | `al/m3-changes` | running | tests per item; datapack for the oak_wood swap carries the override |
-| M2 Nemotron client + inducer + test ordering | `al/m2-llm` | running | fake-transport tests; schema gate; model_calls.jsonl |
+| M3 matrix runner (B and D × every change × seeds, HS episodes) | `al/m3-proof` | merged 7d5435a, 92 tests | seeds 1 2, 20 changes: B HC 60% success, D HC 0% (18 of 40 mis-scored by the loop's contradiction path, routed to m2-recover), D HS 0 contradictions and 0 model calls but no plan until recovery lands |
+| M3 change-class follow-up (goal choice mid-plan, oak_wood barrier override, change.json) | `al/m3-changes` | merged 7d5435a | 8 of 20 changes hit the changed rule mid-plan; the other 12 end on the changed craft; change.json round-trips |
+| M2 Nemotron client + inducer + test ordering | `al/m2-llm` | merged 7d5435a | fake-transport tests pin provider-shaped requests (NVIDIA, Crusoe, Ollama); schema gate; model_calls.jsonl |
+| M3 proof follow-up (worst_case and aggregate keys; success recomputed from the log) | `al/m3-proof` | running | fixture where the manifest lies is refused |
 | M3 ring-sample look for H2 | `al/m3-look` | merged 903f260, 65 tests | H2 seeds 1 to 5 finish in 74 to 187 actions (blind spiral: never within 300); T1 to T3 and H1 unchanged |
 | M7 site + OBS banner | `al/m7-site` | running | `node site/check.mjs` against fixtures |
 | M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
