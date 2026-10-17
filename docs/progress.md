@@ -22,7 +22,8 @@ and the orchestrator read the output, then the branch is merged into
 | M3 ring-sample look for H2 | `al/m3-look` | merged 903f260, 65 tests | H2 seeds 1 to 5 finish in 74 to 187 actions (blind spiral: never within 300); T1 to T3 and H1 unchanged |
 | M7 site + OBS banner | `al/m7-site` | merged 071d77f, then 661ac1c (multi-system proof.json); `node site/check.mjs` 8 pass | status.json and proof.json contracts in site/README.md; banner follows a rewrite within 600 ms |
 | M4 adapter follow-up (`place` action, vanilla shape table by multiset) | `al/m4-adapter` | merged 2539e1e, 24 Node tests | `place` picks a free cardinal neighbour at foot level; a count map with a vanilla multiset takes its shape |
-| M4 live smoke (T1's steps by curl against the running server) | `al/m4-adapter` | running | transcript with ok, output, inventory delta per step; border set from the bot |
+| M4 live smoke (T1's steps by curl against the running server) | `al/m4-adapter` | passed; fixes merged fd6b1b8 | T1 completes live in 12 hand-driven adapter steps, every delta exact; border is set by the adapter on each reset from the spawn packet; `place` reports the inventory delta |
+| M4 adapter viewer (prismarine-viewer behind VIEWER_PORT) and real `look` | `al/m4-adapter` | running | http://127.0.0.1:3007 shows the bot; look reports per-heading nearest blocks |
 | M2 recovery loop + system C | `al/m2-recover` | running | scripted-inducer tests; every benchmark change recovers on seed 1 and its HS episode makes zero inducer calls |
 | M3 system A (Nemotron plan per task, no memory) | `al/m3-system-a` | running | scripted-`complete` tests; at least one call per task |
 | M4 HttpWorld glue + live CLI | `al/m4-httpworld` | merged 00f13ca, 107 tests | Executor and B over a fake HTTP adapter reproduce the grid T1 and H2 logs; `python3 -m breach.live runs/<name> --task T1` |
