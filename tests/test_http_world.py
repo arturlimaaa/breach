@@ -227,6 +227,15 @@ class HttpWorldTests(unittest.TestCase):
             (grid_entry | {"id": "t1", "seed": None, "reset": "/clear", "actions": 12}, "D", 0),
         )
 
+    def test_cli_replays_a_prior_log_without_writing_it_into_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second, url = Path(tmp) / "first", Path(tmp) / "second", self.adapter()
+            live = [sys.executable, "-m", "breach.live", "--url", url, "--task", "T1"]
+            subprocess.run([*live, str(first)], cwd=ROOT, check=True, capture_output=True)
+            subprocess.run([*live, str(second), "--prior", str(first / "t1.jsonl")], cwd=ROOT, check=True, capture_output=True)
+            lines = [len((run / "t1.jsonl").read_text().splitlines()) for run in (first, second)]
+        self.assertEqual(lines, [12, 12])
+
 
 if __name__ == "__main__":
     unittest.main()

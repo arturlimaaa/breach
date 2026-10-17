@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 from .evaluate import certified_vanilla
@@ -18,11 +19,14 @@ TASKS = {task.task_id.upper(): task for task in (T1, T2, T3, H1, H2)}
 SYSTEMS = {"D": run_episode, "B": run_b}
 
 
-def live(out_dir: Path, url: str, task: Task, system: str) -> Path:
-    """Writes run_jobs' layout, manifest.json and <episode>.jsonl, with the task id as the episode id."""
+def live(out_dir: Path, url: str, task: Task, system: str, prior: Sequence[Path] = ()) -> Path:
+    """Writes run_jobs' layout, manifest.json and <episode>.jsonl, with the task id as the episode id.
+
+    `prior` names earlier runs' logs: certification counts their evidence, and they are never copied into this log.
+    """
     world = HttpWorld(url, task)
     out_dir.mkdir(parents=True)
-    log = TransitionLog(out_dir / f"{task.task_id}.jsonl")
+    log = TransitionLog(out_dir / f"{task.task_id}.jsonl", prior=prior)
     result = SYSTEMS[system](world, certified_vanilla(), log, task.task_id)
     # ponytail: a copy of run_jobs' entry, since run_jobs builds GridWorlds; the CLI test catches drift, and a world
     # factory on run_jobs would end the copy.
@@ -42,8 +46,9 @@ def main() -> None:
     parser.add_argument("--url", default="http://127.0.0.1:3100", help="adapter base URL (default: %(default)s, the adapter's PORT)")
     parser.add_argument("--task", choices=TASKS, required=True)
     parser.add_argument("--system", choices=SYSTEMS, default="D")
+    parser.add_argument("--prior", nargs="+", type=Path, default=[], help="earlier runs' <episode>.jsonl logs for certification to replay")
     args = parser.parse_args()
-    print(live(args.out_dir, args.url, TASKS[args.task], args.system))
+    print(live(args.out_dir, args.url, TASKS[args.task], args.system, args.prior))
 
 
 if __name__ == "__main__":
