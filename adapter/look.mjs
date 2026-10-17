@@ -11,6 +11,10 @@ const LEVELS = [0, ...Array.from({ length: 16 }, (_, i) => [i + 1, -i - 1]).flat
 const KNOWN = new Set(['log', 'stone', 'coal_ore', 'crafting_table'])
 const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
 
+// What counts as seen, for look and the observation alike: a block that touches air. Worldgen fills caves with
+// cave_air, so buried stone and cave walls stay out.
+export const touchesAir = (nameAt, x, y, z) => FACES.some(([fx, fy, fz]) => nameAt(x + fx, y + fy, z + fz) === 'air')
+
 // Per heading, the nearest known block as {block, distance}; headings that show none are left out. `nameAt(x, y, z)`
 // gives a block name, or null where no chunk is loaded. A block counts only when it touches air: worldgen fills caves
 // with cave_air, so buried stone and cave walls stay out.
@@ -33,7 +37,7 @@ function scan (nameAt, x0, y0, z0, dx, dz) {
       for (const dy of LEVELS) {
         const y = y0 + dy
         const block = normalize(nameAt(x, y, z) ?? '')
-        if (KNOWN.has(block) && FACES.some(([fx, fy, fz]) => nameAt(x + fx, y + fy, z + fz) === 'air')) return { block, distance: k }
+        if (KNOWN.has(block) && touchesAir(nameAt, x, y, z)) return { block, distance: k }
       }
     }
   }

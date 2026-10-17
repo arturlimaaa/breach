@@ -4,7 +4,7 @@ import mineflayer from 'mineflayer'
 import pathfinderPlugin from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { clear, fill, normalize, slotsFor } from './craft.mjs'
-import { glance, HEADINGS } from './look.mjs'
+import { glance, HEADINGS, touchesAir } from './look.mjs'
 
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
@@ -45,6 +45,8 @@ export class MineflayerWorld {
   // Set once the world has evaluated the step's action. A step refused before that point reports executed false, so the
   // core takes it as no evidence about a rule.
   #executed = false
+  // The block the last toward-move reached, first in line for the next mine.
+  #approached = null
 
   constructor (bot, server, stepMs = STEP_MS) {
     this.bot = bot
@@ -57,6 +59,7 @@ export class MineflayerWorld {
   // ponytail: clears and refills the inventory only; restart the server from the saved world for fresh blocks.
   async reset (inventory) {
     const { bot } = this
+    this.#approached = null
     if (bot.currentWindow) await bot.closeWindow(bot.currentWindow)
     const setup = [`/worldborder center ${bot.spawnPoint.x} ${bot.spawnPoint.z}`, '/worldborder set 256', '/clear']
     for (const command of setup) bot.chat(command)
@@ -122,7 +125,7 @@ export class MineflayerWorld {
 
   async #move (target) {
     if (target?.toward) {
-      await this.#approach(target.toward, `toward ${target.toward}`)
+      this.#approached = await this.#approach(target.toward, `toward ${target.toward}`)
       this.#executed = true
       return { ok: true, message: `moved toward ${target.toward}` }
     }
@@ -158,8 +161,11 @@ export class MineflayerWorld {
 
   async #mine (target) {
     const { bot } = this
-    const block = await this.#approach(target, `to ${target}`)
-    const tool = bot.pathfinder.bestHarvestTool(block)
+    // The tool is chosen, or the mine refused, before any walking. Blocks of one generic name share their harvest tools.
+    const sample = this.#inSight().find(block => normalize(block.name) === target)
+    const tool = sample ? this.#tool(sample) : null
+    const block = await this.#approach(target, `to ${target}`, this.#approached)
+    this.#approached = null
     if (tool) await bot.equip(tool, 'hand')
     const before = this.inventory()
     this.#executed = true
@@ -170,9 +176,21 @@ export class MineflayerWorld {
     const removed = now !== null && normalize(now.name) !== target
     return {
       ok: removed,
-      message: removed ? `mined ${target}` : `${target} is still there`,
-      output: { block_removed: removed, collected: diff(before, this.inventory()) }
+      message: removed ? `mined ${target}${tool ? ` with ${tool.name}` : ''}` : `${target} is still there`,
+      output: { block_removed: removed, collected: diff(before, this.inventory()), ...(tool && { tool: tool.name }) }
     }
+  }
+
+  // The fastest held item that harvests `block`, or null when bare hands are as fast. Stone dug without a pickaxe drops
+  // nothing, which would read as a changed drop rule, so a block that needs a tool none of the held items is refuses.
+  #tool (block) {
+    const time = item => block.digTime(item?.type ?? null, false, false, false)
+    const fastest = (best, item) => time(item) < time(best) ? item : best
+    const held = this.bot.inventory.items()
+    if (!block.harvestTools) return held.reduce(fastest, null)
+    const harvesters = held.filter(item => block.harvestTools[item.type])
+    if (!harvesters.length) throw new Error(`no held tool harvests ${normalize(block.name)}`)
+    return harvesters.reduce(fastest)
   }
 
   // A drop that rolls more than about 1.4 blocks from the bot is not picked up where it stands, so walk onto it.
@@ -301,8 +319,10 @@ export class MineflayerWorld {
 
   // Of the nearest visible blocks of a type, the first already within reach, else the first a path reaches. Move and
   // mine share it, so a mine digs the block a toward-move went to.
-  async #approach (name, label) {
-    const blocks = this.#inSight().filter(block => normalize(block.name) === name).slice(0, APPROACHES)
+  async #approach (name, label, first = null) {
+    const seen = this.#inSight().filter(block => normalize(block.name) === name)
+    const kept = first && seen.find(block => block.position.equals(first.position))
+    const blocks = (kept ? [kept, ...seen.filter(block => block !== kept)] : seen).slice(0, APPROACHES)
     if (!blocks.length) throw new Error(`no ${name} in sight`)
     const near = blocks.find(block => this.#reached(reach(block.position)))
     if (near) return near
@@ -324,12 +344,14 @@ export class MineflayerWorld {
     return { ok: true, message: `blocks along ${Object.keys(seen).length} headings`, output: seen }
   }
 
-  // Non-air blocks within RADIUS with a clear line from the bot's eyes, nearest first.
+  // Non-air blocks within RADIUS that touch air, nearest first: the look rule. A ray to each block's center, the earlier
+  // test, misses a trunk under a canopy one block away; whether a block can be reached is the pathfinder's call.
   #inSight () {
     const { bot } = this
+    const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z), false)?.name ?? null
     return bot.findBlocks({ matching: block => block && !AIR.has(block.name), maxDistance: RADIUS, count: Infinity })
+      .filter(({ x, y, z }) => touchesAir(nameAt, x, y, z))
       .map(position => bot.blockAt(position))
-      .filter(block => block && bot.canSeeBlock(block))
   }
 
   #cancel () {

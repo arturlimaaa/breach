@@ -50,6 +50,11 @@ and the orchestrator read the output, then the branch is merged into
 | M3 chained transition logs (`TransitionLog(path, prior=...)`, run_jobs passes a chain's earlier logs, live `--prior`) and the matrix `--sets HC HR HS` (HR chains under D/<change>-s<seed>-hr) | `al/m3-proof` | merged 0a52484, 193 tests | HC then HS and HR then HS leave the revision certified in store.json |
 | M5 rmalde's harness as live B: pinned clone script, model relay (planner to Nemotron, Jev to OpenRouter), events converter | `al/m5-rmalde` | merged bdc8b4a; setup run (his npm postinstall scripts) and the Jev key wait on the operator | converted events pass the proof; waits are not actions |
 | M4 adapter reach: eight columns around the block within 4.5, toward-move and mine share one approach over the three nearest visible blocks | `al/m4-adapter` | merged 0a52484, 41 Node tests; adapter restarted on it | the diagonal case from live run 4 returns ok with no pathfinder call |
+| M4 adapter heading move (`move {"heading": H, "blocks": n}` paths n blocks along a look heading, falls back to n/2 then n/4 from the start point, 20 s per attempt) | `al/m4-adapter` | merged fb64170, 46 Node tests, 201 core tests; adapter restarted on it | cardinal and toward forms unchanged; the executor's heading exploration on pathing worlds is on the recovery lane |
+| M4 adapter visibility unified on look's air-adjacent rule (observe `visible`, toward-move and mine candidates are the non-air blocks within 8 that touch `air`, nearest first; a toward-move's block leads the next mine's candidates) | `al/m4-adapter` | merged d79fcaa, 48 Node tests, 201 core tests; adapter restarted on it after a world reset | a trunk under leaves is in the observation and minable; `visible` now lists every exposed block within 8 and parse() keeps one block per column |
+| M4 sixth core-driven live T1 (`runs/live-t1-6`, pristine world, watchdog off) | integrate | passed 16:19: wooden pickaxe in 13 actions, 13 of 13 verdicts match, 0 contradictions, 0 model calls; `python3 -m breach.proof runs/live-t1-6` reads 100% | M4 gate met (core completes T1 in the real world, zero exact mismatches); three toward-move, mine, planks triples, then table, sticks, place, pickaxe; the second live gate (count datapack) passed at 15:09 |
+| M4 adapter mine tool from the game's harvest data (equips the fastest held harvester, refuses stone with no pickaxe held, executed false, reports the tool) | `al/m4-adapter` | merged 9e90b30, 51 Node tests, 201 core tests | before it a bare-handed stone dig removed the block with no drop, a false drop contradiction; the adapter restarts on it with the next merge |
+| M6 first live HR (`runs/live-hr-1`, stick-count-2, Nemotron Nano 30B, `--keep-pack --llm`) | integrate | the pack loaded by reload at step 4 (listing seen), then the stick craft answered "output slot empty" (observed {}); two induction rounds gave candidates with empty deltas and `near` values "planks", "stick", '{"crafting_table":1}'; the executor placed planks for one; "unrecoverable craft:stick" after 6 actions, 2 calls, 8643 tokens | the HR reload path works live; cause confirmed: the bot held spruce planks (`/data get entity breach Inventory`) and the pack's recipe takes `minecraft:oak_planks` only; the adapter lane switches pack ingredients to the planks and logs tags and writes a log loot table per wood; the proof lane adds the inducer gate (a craft candidate produces its target, `near` is null or a station block, `tool` is a known tool) |
 | M4 third core-driven live T1 (`runs/live-t1-3`, pristine world) | integrate | every mine and 2x2 craft matched; failed at the 3x3 craft: the executor never places the table ("no crafting table within 16 blocks") and scored the refused craft as a contradiction | both faults are on the recovery lane: `place` step, and an `executed` flag on StepResult so a refused action is tolerant |
 | M4 station placement (grid `place`, near = station block in reach, planner skip, B menu), mine ok=false is tolerant, remembered blocks out of view | `al/m2-recover` | merged d06b7cb, 173 tests | D over the fake adapter and the grid: T1 to H2 all 10 of 10 on seeds 1 to 10 (T3 was 6); B unchanged except H2; grid T1 is 20 actions (one place step) |
 | M4 executor reads the adapter's `executed` flag (StepResult.executed; refused actions log tolerant; refused probes are never evidence) | `al/m2-recover` | merged 7e594bc, 201 tests | a refused craft without a station is tolerant; a refused recipe with a station stays exact; next on the lane: a mine that left its block is tolerant, and heading-move exploration on pathing worlds |
@@ -96,6 +101,20 @@ Crash on 2026-10-17 14:50: the server's watchdog killed it after a 60 s tick
 under CPU starvation (load 232 on 8 cores: a Prism game client, the WebGL
 viewer tab, and parallel lane test runs). Restarted from the saved world.
 Keep one viewer tab open and no game client while lanes run their suites.
+Second crash 16:10, the same watchdog at load 213, one minute after a world
+reset. `max-tick-time=-1` is now set in the live server.properties and in
+`setup/download-server.sh` (bdfefe8), so a stalled tick lags instead of
+killing the server. The adapter exits when the server kicks the bot and is
+restarted by hand after a reset.
+
+World facts (seed 12345, read offline from `world.pristine` by the adapter
+lane): the bot spawns at (58,69,-112) with logs on all eight headings at 1 to
+3 blocks; no exposed stone within 32 blocks, the nearest at (48,72,-81), 33
+blocks south-southwest, 12 within 48; the nearest exposed coal 76 blocks away.
+Logs mask stone in an unfiltered look until about 25 blocks south. So T2, H1,
+T3 and the stone-drop changes need a look filtered by block type and a move to
+a remembered position (adapter lane), and the table placed at the point of use
+or a return to the placed one (executor).
 
 Server: the vanilla 1.16.5 server runs from `adapter/server/` (seed 12345,
 offline mode, port 25565, `eula=true` set on 2026-10-17) inside the detached
