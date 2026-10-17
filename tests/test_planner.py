@@ -2,7 +2,8 @@ import unittest
 from collections import Counter
 from dataclasses import replace
 
-from breach.planner import plan
+from breach.planner import Step, plan
+from breach.rules import Rule
 from breach.store import RuleStore
 from breach.world import VANILLA, Recipe, rules_from_ruleset
 
@@ -43,6 +44,13 @@ class PlannerTests(unittest.TestCase):
         for rule in rules_from_ruleset(VANILLA, status="hypothesis"):
             store.add(rule)
         self.assertIsNone(plan("planks", 4, {"log": 1}, store.usable("grid/vanilla"), lambda block: 1))
+
+    def test_a_step_from_an_uncertified_rule_is_a_test(self):
+        hypothesis = Rule("craft:stick#1", "craft", "stick", {"planks": -2, "stick": 2})
+        self.assertEqual(
+            plan("stick", 1, {"planks": 2}, [hypothesis], lambda block: 1),
+            [Step("craft:stick#1", "craft", "stick", {"planks": -2, "stick": 2}, None, None, test=True)],
+        )
 
     def test_a_tool_that_needs_itself_yields_no_plan(self):
         rules = rules_with(planks=Recipe({"log": 1, "coal": 1}, 4, None))

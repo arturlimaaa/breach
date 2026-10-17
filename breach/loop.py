@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
-from .certify import demote
+from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
+from .recover import Induce, recover
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, Action, GridWorld, Position
@@ -18,12 +20,20 @@ class EpisodeResult:
 
 
 class Executor:
-    """Runs plans from the store one step at a time, verifying each step against the next observation."""
+    """Runs plans from the store one step at a time, verifying each step against the next observation.
 
-    def __init__(self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str):
+    With `check` off (system C) every verdict is logged and none is acted on.
+    """
+
+    def __init__(
+        self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, check: bool = True
+    ):
         self.world, self.store, self.log, self.episode = world, store, log, episode
+        self.induce, self.check = induce, check
         self.known: dict[Position, str] = {}
         self.steps = 0
+        self.rounds: Counter[tuple[str, str]] = Counter()
+        self.unknown: list[str] = []
 
     def observe(self):
         obs = self.world.observe()
@@ -36,11 +46,14 @@ class Executor:
     def act(self, action: Action, step: Step | None = None) -> Transition:
         before = self.observe()
         result = self.world.step(action)
-        observed = diff(before.inventory, result.observation.inventory)
         predicted = dict(step.delta) if step else {}
         # A mine action names no block; the step does, and both the exact whitelist and the metrics need it.
         target = step.target if step else action.target
-        cls = classify(action.name, target)
+        if action.name == "probe":
+            # A probe consumes nothing; a test probe is checked exactly on what the output slot shows.
+            observed, cls = result.output or {}, "exact"
+        else:
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, target)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, target,
@@ -91,29 +104,49 @@ class Executor:
     def run(self) -> EpisodeResult:
         task = self.world.task
         while not self.world.done:
-            obs = self.observe()
-            steps = plan(task.goal, task.count, dict(obs.inventory), self.store.usable(self.world.server), self.distance)
+            inventory, server = dict(self.observe().inventory), self.world.server
+            steps = plan(task.goal, task.count, inventory, self.store.usable(server), self.distance)
             if steps is None:
-                return EpisodeResult(False, self.world.actions, "no certified plan")
-            for step in steps:
-                if self.world.done:
-                    break
-                if step.action == "mine" and not self.travel_to(step.target):
-                    if self.world.done:
-                        break
-                    return EpisodeResult(False, self.world.actions, f"no reachable {step.target}")
-                if self.world.done:
-                    break
-                action = Action(step.action, step.target if step.action == "craft" else None)
-                transition = self.act(action, step)
-                if transition.cls == "exact" and transition.verdict == "mismatch":
-                    demote(self.store, step.rule_id, self.world.server)
-                    # ponytail: M2 replaces this return with induction and re-certification.
-                    return EpisodeResult(False, self.world.actions, f"contradiction at {step.rule_id}")
-                # The event may have moved the inventory off the plan; finishing it would blame the next rule.
-                if transition.verdict == "quarantined":
-                    break
+                steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance)
+            if steps is None:
+                return EpisodeResult(False, self.world.actions, f"unrecoverable {self.unknown[-1]}" if self.unknown else "no certified plan")
+            hit = self.execute(steps)
+            reason = self.refuted(hit) if isinstance(hit, Transition) else hit
+            if reason is not None:
+                return EpisodeResult(False, self.world.actions, reason)
         return EpisodeResult(self.world.success, self.world.actions, "goal" if self.world.success else "budget")
+
+    def execute(self, steps: list[Step]) -> Transition | str | None:
+        """Act out `steps`. Returns the step that refuted its rule, a reason the episode cannot go on, or None to replan."""
+        for step in steps:
+            if self.world.done:
+                return None
+            if step.action == "mine" and not self.travel_to(step.target):
+                return None if self.world.done else f"no reachable {step.target}"
+            if self.world.done:
+                return None
+            transition = self.act(Action(step.action, step.target if step.action == "craft" else None), step)
+            if not self.check:
+                continue
+            if transition.cls == "exact" and transition.verdict == "mismatch":
+                return transition
+            # The event may have moved the inventory off the plan; finishing it would blame the next rule.
+            if transition.verdict == "quarantined":
+                return None
+            # A certified rule plans as an ordinary step, so the rest of this plan is stale.
+            if step.test and transition.verdict == "match" and certify(self.store, self.log, step.rule_id).reason == "certified":
+                return None
+        return None
+
+    def refuted(self, transition: Transition) -> str | None:
+        """Demote the refuted rule on this server, then recover it. Without an inducer a refuted certified rule ends the episode."""
+        rule = demote(self.store, transition.rule_id, self.world.server)
+        if self.induce is None:
+            return None if transition.test else f"contradiction at {transition.rule_id}"
+        # Candidates a round left untested when the budget ran out get tested by planning before the model is asked again.
+        if any(r.key == rule.key and r.status == "hypothesis" for r in self.store.usable(self.world.server, hypotheses=True)):
+            return None
+        return recover(self, rule, transition)
 
 
 def _cycle(items):
@@ -121,5 +154,10 @@ def _cycle(items):
         yield from items
 
 
-def run_episode(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str) -> EpisodeResult:
-    return Executor(world, store, log, episode).run()
+def run_episode(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None) -> EpisodeResult:
+    return Executor(world, store, log, episode, induce).run()
+
+
+def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str) -> EpisodeResult:
+    """System C: rules without the step check. It follows each plan to its end and replans only then."""
+    return Executor(world, store, log, episode, check=False).run()

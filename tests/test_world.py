@@ -26,6 +26,11 @@ class GridWorldTests(unittest.TestCase):
         world = GridWorld(T1, seed=7, inventory={"planks": 2, "coal": 1})
         self.assertEqual(world.step(Action("probe", "stick", grid={"planks": 2, "coal": 1})).output, {})
 
+    def test_probe_of_a_grid_not_held_fails_without_showing_a_slot(self):
+        world = GridWorld(T1, seed=7, inventory={"planks": 1})
+        result = world.step(Action("probe", "stick", grid={"planks": 2}))
+        self.assertEqual((result.ok, result.output, dict(world.inventory)), (False, None, {"planks": 1}))
+
     def test_stone_needs_a_pickaxe(self):
         world = GridWorld(T1, seed=7)
         world.position = next(p for p, b in world.blocks.items() if b == "stone")

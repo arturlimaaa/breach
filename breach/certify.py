@@ -22,10 +22,28 @@ def contradictions(log: TransitionLog, rule: Rule) -> list[Transition]:
     return [t for t in log.contradictions() if t.rule_id == rule.rule_id]
 
 
+def replayed(log: Iterable[Transition], rule: Rule) -> tuple[list[Transition], list[Transition]]:
+    """Contradictions and confirmations of a revised rule, recomputed from every step of its key on its server.
+
+    A step counts whatever rule it was logged under, test or not. A failed step only shows the world refused
+    the action, so it counts neither way, nor does a quarantined one. A probe counts for the grid it placed.
+    """
+    steps = [
+        t for t in log
+        if t.server == rule.scope and t.ok and t.verdict != "quarantined"
+        and ((t.action, t.target) == rule.key or (t.action == "probe" and t.rule_id == rule.rule_id))
+    ]
+    holds = [t.observed == (rule.outputs if t.action == "probe" else rule.delta) for t in steps]
+    return [t for t, h in zip(steps, holds) if not h], [t for t, h in zip(steps, holds) if h]
+
+
 def certify(store: RuleStore, log: TransitionLog, rule_id: str) -> Certification:
     """A failed certification leaves the stored rule as it is; only `demote` takes a rule out of planning."""
     rule = store.rules[rule_id]
-    against, confirmed = contradictions(log, rule), confirmations(log, rule)
+    if rule.revision_of is None:
+        against, confirmed = contradictions(log, rule), confirmations(log, rule)
+    else:
+        against, confirmed = replayed(log, rule)
     if against:
         return Certification(rule, f"contradicted at {against[0].episode}/{against[0].step}")
     if len(confirmed) < 2:

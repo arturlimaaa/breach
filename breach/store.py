@@ -24,8 +24,8 @@ class RuleStore:
             payload = [r.to_dict() for r in self.rules.values()]
             self.path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    def usable(self, server: str) -> list[Rule]:
-        """Certified rules for planning on `server`. A server-scoped rule shadows the global one."""
+    def usable(self, server: str, hypotheses: bool = False) -> list[Rule]:
+        """Certified rules for planning on `server`, plus its own hypotheses when asked. A server-scoped rule shadows the global one."""
         by_key: dict[tuple[str, str], list[Rule]] = defaultdict(list)
         for rule in self.rules.values():
             by_key[rule.key].append(rule)
@@ -33,5 +33,5 @@ class RuleStore:
         for rules in by_key.values():
             scoped = [r for r in rules if r.scope == server]
             pool = scoped or [r for r in rules if r.scope == "global"]
-            usable.extend(r for r in pool if r.status == "certified")
+            usable.extend(r for r in pool if r.status == "certified" or (hypotheses and r.status == "hypothesis" and r.scope == server))
         return usable

@@ -64,6 +64,50 @@ class CertifyTests(unittest.TestCase):
         )
 
 
+SERVER = "grid/stick-count-2"
+REVISION = Rule(
+    "craft:stick@grid/stick-count-2#1", "craft", "stick", {"planks": -2, "stick": 2},
+    scope=SERVER, source="induced", revision_of="craft:stick@grid/stick-count-2",
+)
+
+
+def stepped(episode, step, action, rule_id, predicted, observed, ok=True, server=SERVER):
+    return Transition(
+        episode, step, server, "", action, "stick", rule_id, predicted, observed, "exact",
+        verdict("exact", predicted, observed, ok), rule_id != STICK.rule_id, ok,
+    )
+
+
+PRE_CHANGE = stepped("e1", 2, "craft", STICK.rule_id, STICK.delta, STICK.delta)
+COUNTEREXAMPLE = stepped("e1", 5, "craft", STICK.rule_id, STICK.delta, REVISION.delta)
+PROBE = stepped("e1", 6, "probe", REVISION.rule_id, REVISION.outputs, REVISION.outputs)
+USE = stepped("e2", 3, "craft", REVISION.rule_id, REVISION.delta, REVISION.delta)
+
+
+def revising(*transitions):
+    store, log = RuleStore(), TransitionLog()
+    store.add(REVISION)
+    for transition in transitions:
+        log.append(transition)
+    return certify(store, log, REVISION.rule_id)
+
+
+class ReplayCertifyTests(unittest.TestCase):
+    def test_a_counterexample_and_a_probe_then_a_use_in_another_episode_certify_a_revision(self):
+        certified = replace(REVISION, status="certified", evidence=("e1/5", "e1/6", "e2/3"))
+        self.assertEqual(revising(COUNTEREXAMPLE, PROBE, USE), Certification(certified, "certified"))
+
+    def test_a_pre_change_match_on_the_same_server_blocks_a_revision(self):
+        self.assertEqual(revising(PRE_CHANGE, COUNTEREXAMPLE, PROBE, USE), Certification(REVISION, "contradicted at e1/2"))
+
+    def test_failed_steps_other_servers_and_other_grids_count_neither_way(self):
+        failed = stepped("e1", 4, "craft", STICK.rule_id, STICK.delta, {}, ok=False)
+        elsewhere = stepped("e1", 1, "craft", STICK.rule_id, STICK.delta, STICK.delta, server="grid/vanilla")
+        other_grid = stepped("e1", 7, "probe", "craft:stick@grid/stick-count-2#2", {"stick": 4}, {})
+        certified = replace(REVISION, status="certified", evidence=("e1/6", "e2/3"))
+        self.assertEqual(revising(elsewhere, failed, PROBE, other_grid, USE), Certification(certified, "certified"))
+
+
 class ReplayTests(unittest.TestCase):
     def test_a_failed_move_replays_as_a_mismatch_and_an_unchecked_probe_as_ignored(self):
         move = Transition("t1", 1, "grid/vanilla", "", "move", "up", None, {}, {}, "tolerant", "mismatch", ok=False)
