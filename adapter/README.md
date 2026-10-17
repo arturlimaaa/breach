@@ -101,9 +101,10 @@ Steps over Minecraft:
   uses, and it is what "visible" means for a toward-move and a mine too. There is no line-of-sight test: a ray to a
   block's center misses a trunk under leaves one block away. The pathfinder decides what can be reached.
 - `mine`: `target` is a block name. It tries the block the last toward-move reached first, then picks the way a
-  toward-move does, and digs with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of pickup range, it walks onto it (3 s) and
-  waits 1 s more. `output` is `{block_removed, collected}`. `block_removed` is read after those waits, so a dig the
-  server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
+  toward-move does, and digs with the fastest held tool. It waits 1 s for the drop. When the drop has rolled out of
+  pickup range, it walks onto it (3 s) and waits 1 s more. `output` is `{block_removed, collected}`. `block_removed`
+  is read after those waits, so a dig the server refused shows as `false`. `collected` is the inventory delta. `ok`
+  equals `block_removed`.
 - `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
   foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
   the block there, and the message gives its position. `output` is the inventory delta, as for `craft`:
