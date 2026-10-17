@@ -16,18 +16,20 @@ from .proof import _jsonl, read_log
 
 
 def export(run_dir: Path) -> list[dict]:
-    """One rollout per induction call of every run under `run_dir`."""
-    manifests = sorted(run_dir.rglob("manifest.json"))
-    if not manifests:
-        raise ValueError(f"no run under {run_dir}: expected manifest.json and one <episode>.jsonl per episode")
-    return [rollout for manifest in manifests for rollout in _rollouts(manifest.parent)]
+    """One rollout per induction call in every model_calls.jsonl under `run_dir`."""
+    if not run_dir.is_dir():
+        raise ValueError(f"no run directory at {run_dir}")
+    return [rollout for calls in sorted(run_dir.rglob("model_calls.jsonl")) for rollout in _rollouts(calls.parent)]
 
 
 def _rollouts(run: Path) -> list[dict]:
-    episodes = json.loads((run / "manifest.json").read_text(encoding="utf-8"))["episodes"]
-    timeline = [t for entry in episodes for t in read_log(run / f"{entry['id']}.jsonl")]
-    index = {(t.episode, t.step): n for n, t in enumerate(timeline)}
     calls = [c for c in _jsonl(run / "model_calls.jsonl") if c["purpose"] == "induce"]
+    manifest = run / "manifest.json"
+    listed = [e["id"] for e in json.loads(manifest.read_text(encoding="utf-8"))["episodes"]] if manifest.exists() else []
+    # An inducer error ends the run before run_jobs lists the episode in progress, which ran last.
+    order = listed + [e for e in dict.fromkeys(c["episode"] for c in calls) if e not in listed]
+    timeline = [t for episode in order for t in read_log(run / f"{episode}.jsonl")]
+    index = {(t.episode, t.step): n for n, t in enumerate(timeline)}
     at = []
     for c in calls:
         where = f"{c['episode']}/{c['step']}"

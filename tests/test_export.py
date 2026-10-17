@@ -24,6 +24,13 @@ def call(episode, at, purpose="induce", **extra):
     }
 
 
+def failed(episode, at):
+    """A call the endpoint refused, which llm.complete logs with its error and no reply."""
+    record = call(episode, at, error="RuntimeError('HTTP 429: rate limited')")
+    del record["reply"], record["reasoning"]
+    return record
+
+
 def episode(episode_id, server):
     return {"id": episode_id, "server": server}
 
@@ -124,9 +131,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(rewards(export(run)), [(DROP_HC["id"], 1, 0.0, None)])
 
     def test_a_failed_call_is_kept_as_a_masked_sample_that_no_later_revision_credits(self):
-        failed = call(COUNT_HC["id"], 2, error="RuntimeError('HTTP 429: rate limited')")
-        del failed["reply"], failed["reasoning"]
-        run = write_run(self.tmp / "run", "D", [COUNT_HC], COUNT_LOGS, [failed])
+        run = write_run(self.tmp / "run", "D", [COUNT_HC], COUNT_LOGS, [failed(COUNT_HC["id"], 2)])
         self.assertEqual(
             export(run),
             [{
@@ -145,6 +150,23 @@ class ExportTests(unittest.TestCase):
         write_run(self.tmp / "tree" / "D" / "stick-count-2-s1", "D", [COUNT_HC], COUNT_LOGS, [call(COUNT_HC["id"], 2)])
         write_run(self.tmp / "tree" / "D" / "stone-drop-nothing-s1", "D", [DROP_HC], DROP_LOGS, DROP_CALLS)
         self.assertEqual(len(export(self.tmp / "tree")), 1 + len(DROP_CALLS))
+
+    def test_a_run_an_inducer_error_stopped_still_exports_the_episode_in_progress(self):
+        """run_jobs lists an episode only once it ends, so the error leaves it out of the manifest, or leaves no manifest."""
+        hc, hs = episode("ladder-count-2-hc-s1", "grid/ladder-count-2"), episode("ladder-count-2-hs-s1", "grid/ladder-count-2")
+        logs = {
+            hc["id"]: [step("craft", "ladder", "craft:ladder", LADDER, LADDER_2, "mismatch")],
+            hs["id"]: [step("craft", "ladder", "craft:ladder@grid/ladder-count-2#1", {"stick": -7, "ladder": 1}, LADDER_2, "mismatch", test=True)],
+        }
+        ladder = write_run(self.tmp / "tree" / "D" / "ladder-count-2-s1", "D", [hc, hs], logs, [call(hc["id"], 1), failed(hs["id"], 1)])
+        (ladder / "manifest.json").write_text(json.dumps({"system": "D", "episodes": [hc]}))
+        stone_logs = {DROP_HC["id"]: DROP_LOGS[DROP_HC["id"]][:1]}
+        stone = write_run(self.tmp / "tree" / "D" / "stone-drop-nothing-s1", "D", [DROP_HC], stone_logs, [DROP_CALLS[0], failed(DROP_HC["id"], 1)])
+        (stone / "manifest.json").unlink()
+        self.assertEqual(
+            [(r["episode"], r["step"], r["reward"], r.get("mask_sample", False)) for r in export(self.tmp / "tree")],
+            [(hc["id"], 1, 0.0, False), (hs["id"], 1, 0.0, True), (DROP_HC["id"], 1, 0.0, False), (DROP_HC["id"], 1, 0.0, True)],
+        )
 
     def test_a_call_logged_without_its_prompt_is_refused(self):
         old = call(COUNT_HC["id"], 2)
