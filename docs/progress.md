@@ -31,7 +31,7 @@ and the orchestrator read the output, then the branch is merged into
 | M4 count-datapack gate live (`/reload`, craft stick returns 2, disable, returns 4) | `al/m4-adapter` | passed 15:09 | pack folder `world/datapacks/stick-count-2` stays in place, disabled; `datapack disable "file/<id>"` reloads by itself; the flag reaches level.dat on save |
 | M7 watch page (viewer frame + status panel + live step log) | `al/m7-site` | merged fd75715, 12 site checks | `site/watch.html?run=<run>&episode=<id>`; fixture preview with `?run=../site/fixtures` |
 | M4 live travel semantics (`paths` capability, toward-moves, action fields for D, B, and A) | `al/m4-live-travel` | merged e77ad31 and 042ea0c, 130 tests; follow-up running: bound the spiral only when look output is null | D over the fake adapter: T1 in 12 actions with one toward-move per mine; 52 grid logs byte-identical |
-| M3 proof: immediate repeat = next non-move, non-look step reusing the refuted rule_id | `al/m3-proof` | running | a revision id or test step never counts |
+| M3 proof: immediate repeat = next non-move, non-look step reusing the refuted rule_id | `al/m3-proof` | merged 37982ba, 131 tests | a revision id or test step never counts; A 60% and B 20% unchanged |
 | M4 first core-driven live T1 (`runs/live-t1-1`) | integrate | ran: 16 actions, mined a log, crafted planks and a table, then a mine returned ok=false with an empty delta under server lag and was scored "contradiction at mine:log" | finding: a mine whose block was not removed is an execution failure, not evidence against the rule; score it tolerant (adapter output `block_removed`), exact only once the block is gone. Goes to the station-placement lane with the executor's `place` step. Exploration used the blind spiral because the adapter's look is not in yet. |
 | M3 proof: recovery tests are not repeats; probes do not count as inventory | `al/m3-proof` | merged 55774a0, 120 tests | D's drop-change test mine scores 0 repeats |
 | M2 recovery loop + system C + status.json | `al/m2-recover` | reported 7b84f3e: all 20 changes recover on seed 1, 0 inducer calls in HS, revisions certified after HS; merge blocked by conflicts with the look lane, lane resolving; C and status.json pending | scripted-inducer tests; per-change table |
@@ -48,6 +48,14 @@ against 44 to 149 (measured by the look lane, not committed). Wire systems A
 and C into `evaluate.run_jobs` after their lanes merge. Executor-side
 placement of the crafting table (grid `place` action, executor near-check, B
 menu option) is a lane after recovery lands.
+
+Library behaviour found live (adapter lane): mineflayer-pathfinder keeps
+walking a partial route after a step reports "no path" unless the goal is
+cleared, and its reach check refuses blocks 3 or more above the feet;
+prismarine-viewer 1.33.0 fails to import on Node 24 (undeclared native
+`canvas`), 1.32.0 works; console commands piped before the world loads have
+no world, so `worldborder` fails while `gamerule` works; a detached screen
+session needs `-p 0` for `stuff` to reach the console.
 
 Tooling: the Playwright MCP browser is shared between every agent in the
 session and can only write under /Users/artur/schema-voyager; agents take
