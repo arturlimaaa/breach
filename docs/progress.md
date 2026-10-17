@@ -14,7 +14,7 @@ and the orchestrator read the output, then the branch is merged into
 | M3 change-class generator + datapacks | `al/m3-changes` | merged 2a72002, 49 tests; 20 of 30 changes benchmarkable | 30 changes enumerated, rulesets and datapacks written, impossible goals excluded |
 | M4 Mineflayer adapter + server setup | `al/m4-adapter` | running | `node --test` with a fake bot; live T1 waits on the EULA |
 | M3 baseline B (rmalde architecture, grid) | `al/m3-baseline-b` | merged 1048e7b, 37 tests | B finishes vanilla T1; re-crafts under a count change; stalls under a precondition change |
-| M3 evaluator + proof script | `al/m3-proof` | running | proof.json and results table from a run directory |
+| M3 evaluator + proof script | `al/m3-proof` | merged 78fc94e | proof.json and results table from a run directory |
 | M2 Nemotron client + inducer + test ordering | `al/m2-llm` | running | fake-transport tests; schema gate; model_calls.jsonl |
 | M3 ring-sample look for H2 | `al/m3-look` | running | H2 succeeds on seeds 1 to 5 within budget |
 | M7 site + OBS banner | `al/m7-site` | running | `node site/check.mjs` against fixtures |
