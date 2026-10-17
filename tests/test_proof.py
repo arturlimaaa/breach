@@ -15,16 +15,16 @@ STICK = {"planks": -2, "stick": 4}
 STICK_2 = {"planks": -2, "stick": 2}
 
 CONTRADICTED = {
-    "id": "hc-stick-count-2-s1", "task": "hc", "server": "grid/stick-count-2", "change": "stick-count-2",
-    "seed": 1, "success": False, "actions": 8, "reason": "budget",
+    "id": "stick-count-2-hc-s1", "task": "hc", "server": "grid/stick-count-2", "change": "stick-count-2", "seed": 1,
+    "goal": "wooden_pickaxe", "count": 1, "inventory": {}, "success": False, "actions": 8, "reason": "budget",
 }
 DROPPED = {
-    "id": "hc-stone-drop-none-s1", "task": "hc", "server": "grid/stone-drop-none", "change": "stone-drop-none",
-    "seed": 1, "success": False, "actions": 3, "reason": "budget",
+    "id": "stone-drop-nothing-hc-s1", "task": "hc", "server": "grid/stone-drop-nothing", "change": "stone-drop-nothing", "seed": 1,
+    "goal": "stone_pickaxe", "count": 1, "inventory": {"wooden_pickaxe": 1}, "success": False, "actions": 3, "reason": "budget",
 }
 CLEAN = {
-    "id": "t1-s1", "task": "t1", "server": "grid/vanilla", "change": None,
-    "seed": 1, "success": True, "actions": 4, "reason": "goal",
+    "id": "t1-s1", "task": "t1", "server": "grid/vanilla", "change": None, "seed": 1,
+    "goal": "stick", "count": 5, "inventory": {"stick": 1}, "success": True, "actions": 4, "reason": "goal",
 }
 
 
@@ -127,10 +127,37 @@ class ProofTests(unittest.TestCase):
             [("B", "worst"), ("D", "worst"), ("B", "HC"), ("D", "T1")],
         )
 
+    def test_each_system_names_its_slowest_recovery_and_averages_all_its_episodes(self):
+        self.assertEqual(
+            proof(self.run_dir)["systems"],
+            {"D": {
+                "worst_case": {"episode": DROPPED["id"], "recovery_latency": None},
+                "aggregate": {
+                    "system": "D", "set": "all", "episodes": 3, "success": 1 / 3, "actions_per_success": 4.0,
+                    "contradicted": 2, "actions_after_contradiction": 1.0, "immediate_repeat": 0.5,
+                    "recovery_latency_mean": 5.0, "recovery_latency_worst": 5, "unrecovered": 1,
+                    "text_model_calls": 2 / 3, "tokens": 800.0,
+                },
+            }},
+        )
+
+    def test_a_system_without_contradictions_has_no_worst_case_episode(self):
+        write_run(self.tmp / "matrix" / "D", "D", [CLEAN], LOGS, [])
+        write_run(self.tmp / "matrix" / "B", "B", [CONTRADICTED], LOGS, CALLS)
+        self.assertEqual(
+            {system: v["worst_case"] for system, v in proof(self.tmp / "matrix")["systems"].items()},
+            {"B": {"episode": CONTRADICTED["id"], "recovery_latency": 5}, "D": {"episode": None, "recovery_latency": None}},
+        )
+
     def test_a_log_that_disagrees_with_the_action_count_is_refused(self):
         write_run(self.tmp / "short", "D", [{**CLEAN, "actions": 5}], LOGS, [])
         with self.assertRaisesRegex(ValueError, "t1-s1"):
             proof(self.tmp / "short")
+
+    def test_a_manifest_whose_success_the_log_contradicts_is_refused(self):
+        write_run(self.tmp / "lie", "D", [{**CLEAN, "success": False}], LOGS, [])
+        with self.assertRaisesRegex(ValueError, "t1-s1.*success"):
+            proof(self.tmp / "lie")
 
     def test_cli_writes_proof_json_and_prints_the_worst_case_row_first(self):
         result = subprocess.run([sys.executable, "-m", "breach.proof", str(self.run_dir)], cwd=ROOT, capture_output=True, text=True)

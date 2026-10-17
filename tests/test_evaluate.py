@@ -10,7 +10,7 @@ from breach.loop import EpisodeResult, run_episode
 from breach.proof import proof
 from breach.store import RuleStore
 from breach.tasks import H1, T1
-from breach.world import VANILLA
+from breach.world import VANILLA, Action
 
 T1_JOB = (T1, 1, "grid/vanilla", VANILLA, None)
 H1_JOB = (H1, 1, "grid/vanilla", VANILLA, None)
@@ -45,6 +45,18 @@ class EvaluateTests(unittest.TestCase):
             return seen[0] is seen[1]
 
         self.assertEqual((shared(True), shared(False)), (True, False))
+
+    def test_the_manifest_records_the_worlds_outcome_not_the_systems_claim(self):
+        def liar(world, store, log, episode):
+            world.step(Action("move", "east"))
+            return EpisodeResult(True, 0, "goal")
+
+        run = run_jobs(liar, [T1_JOB], RuleStore, self.tmp / "run", name="D")
+        [entry] = json.loads((run / "manifest.json").read_text())["episodes"]
+        self.assertEqual(
+            {k: entry[k] for k in ("goal", "count", "inventory", "success", "actions", "reason")},
+            {"goal": "wooden_pickaxe", "count": 1, "inventory": {}, "success": False, "actions": 1, "reason": "goal"},
+        )
 
     def test_a_repeated_job_is_refused_instead_of_sharing_a_log(self):
         with self.assertRaises(FileExistsError):
