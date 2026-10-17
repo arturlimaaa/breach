@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from collections.abc import Iterator, Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from .world import Observation
 
@@ -23,6 +23,8 @@ class Transition:
     cls: str
     verdict: str
     test: bool = False
+    ok: bool = True
+    events: list[str] = field(default_factory=list)
 
 
 def obs_hash(obs: Observation) -> str:
@@ -33,10 +35,15 @@ def diff(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
     return {k: after.get(k, 0) - before.get(k, 0) for k in before.keys() | after.keys() if after.get(k, 0) != before.get(k, 0)}
 
 
-def verdict(cls: str, predicted: dict[str, int], observed: dict[str, int], ok: bool) -> str:
+def verdict(cls: str, predicted: dict[str, int], observed: dict[str, int], ok: bool, events: Sequence[str] = ()) -> str:
+    """An event during the step disqualifies its evidence either way, so it is quarantined before any check."""
+    if events:
+        return "quarantined"
     if cls == "exact":
         return "match" if predicted == observed else "mismatch"
-    return "match" if ok else "mismatch"
+    if cls == "tolerant":
+        return "match" if ok else "mismatch"
+    return "ignored"
 
 
 class TransitionLog:

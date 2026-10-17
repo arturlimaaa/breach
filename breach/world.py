@@ -87,6 +87,7 @@ class StepResult:
     message: str
     output: dict[str, int] | None
     observation: Observation
+    events: list[str] = field(default_factory=list)  # death, damage, despawn; the grid has no hazards
 
 
 def layout(seed: int, min_log_distance: int = 0) -> dict[Position, str]:
