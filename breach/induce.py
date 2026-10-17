@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from functools import partial
 
+from .changes import items
 from .llm import complete
 from .log import Transition
 from .rules import ACTIONS, CLASSES, STATUSES, TOOL_TIERS, Rule
@@ -95,7 +96,7 @@ def _prompt(rule: Rule, counterexample: Transition, log_tail: list[Transition], 
     c = counterexample
     steps = [t for t in log_tail if t.action != "move"]
     deltas = [rule.delta, c.predicted, c.observed] + [d for t in steps for d in (t.predicted, t.observed)]
-    items = sorted({item for delta in deltas for item in delta})
+    in_play = sorted({item for delta in deltas for item in delta})
     recent = "\n".join(f"- {t.action} {t.target}: predicted {j(t.predicted)}, observed {j(t.observed)}, {t.verdict}" for t in steps)
     # The gate's own constraints, so the model is not refused for what it was never told.
     craft = (
@@ -107,11 +108,12 @@ def _prompt(rule: Rule, counterexample: Transition, log_tail: list[Transition], 
 Rule: {j(rule.to_dict())}
 Step {c.episode}/{c.step}: {c.action} {c.target} predicted {j(c.predicted)} but observed {j(c.observed)}.
 Deltas are inventory changes: negative is consumed, positive is produced. An empty delta means nothing changed.
+The server differs from vanilla in exactly one rule, changed in one way: a recipe's output count, one ingredient added to a recipe, one ingredient swapped for another, or a block's drop changed or removed.
 
 Recent steps:
 {recent or "- none"}
 
-Items in play: {", ".join(items)}. Use generic item names like these.
+Items in play: {", ".join(in_play)}. Every item in this world: {", ".join(items())}. Use these generic names.
 A probe reports the output slot for a placed grid at no cost, so every candidate will be tested.
 
 Propose at most {k} revisions of the rule that explain the observation, most likely first.
