@@ -84,9 +84,9 @@ async function session (t, stacks, recipe) {
 
 const sticks = count => grid => grid === STICK_GRID ? { name: 'stick', count } : null
 
-test('craft takes the result the server computed and reports the delta both sides agree on', async (t) => {
+test('craft lays a vanilla multiset in its shape and reports the delta both sides agree on', async (t) => {
   const { world, serverInventory } = await session(t, [[36, 'oak_planks', 3]], sticks(4))
-  const result = await world.act({ action: 'craft', target: 'stick', grid: [['planks'], ['planks']] })
+  const result = await world.act({ action: 'craft', target: 'stick', grid: { planks: 2 } })
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {
@@ -99,13 +99,13 @@ test('craft takes the result the server computed and reports the delta both side
 
 test('craft under a changed count reports the changed count', async (t) => {
   const { world } = await session(t, [[36, 'oak_planks', 2]], sticks(2))
-  const result = await world.act({ action: 'craft', target: 'stick', grid: [['planks'], ['planks']] })
+  const result = await world.act({ action: 'craft', target: 'stick', grid: { planks: 2 } })
   assert.deepEqual(result, { ok: true, message: 'crafted 2 stick', output: { planks: -2, stick: 2 }, events: [] })
 })
 
 test('probe reads the result slot and puts every ingredient back', async (t) => {
   const { world, serverInventory } = await session(t, [[36, 'oak_planks', 3]], sticks(4))
-  const result = await world.act({ action: 'probe', target: 'stick', grid: [['planks'], ['planks']] })
+  const result = await world.act({ action: 'probe', target: 'stick', grid: { planks: 2 } })
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {
@@ -116,15 +116,18 @@ test('probe reads the result slot and puts every ingredient back', async (t) => 
   )
 })
 
-test('reset returns only after /clear and /give land, even when the inventory already matches', async (t) => {
+test('reset returns its commands only after /clear and /give land, even when the inventory already matches', async (t) => {
   const { world, commands } = await session(t, [[36, 'oak_planks', 4]], sticks(4))
-  await world.reset({ planks: 4 })
-  assert.deepEqual({ commands: commands(), inventory: world.inventory() }, { commands: 2, inventory: { planks: 4 } })
+  const message = await world.reset({ planks: 4 })
+  assert.deepEqual(
+    { message, commands: commands(), inventory: world.inventory() },
+    { message: '/clear; /give @s oak_planks 4', commands: 2, inventory: { planks: 4 } }
+  )
 })
 
 test('a grid with no result fails the craft and puts the ingredients back', async (t) => {
   const { world, serverInventory } = await session(t, [[36, 'oak_planks', 3]], sticks(4))
-  const result = await world.act({ action: 'craft', target: 'stick', grid: { planks: 2 } })
+  const result = await world.act({ action: 'craft', target: 'stick', grid: { planks: 3 } })
   assert.deepEqual(
     { result, client: world.inventory(), server: serverInventory() },
     {

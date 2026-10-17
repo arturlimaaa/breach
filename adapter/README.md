@@ -56,6 +56,10 @@ npm start
 
 The adapter exits when the bot leaves the server.
 
+`POST /reset` clears the inventory with `/clear`, then fills it with one `/give` per task item. Its response is the
+observation plus `message`, the commands it issued (`"/clear; /give @s oak_planks 4"`), so a run manifest can record
+the start state. Blocks are not restored.
+
 Steps over Minecraft:
 
 - `move`: `target` is `north`, `south`, `east`, `west` (one block), or `{"toward": "log"}`, which paths until the
@@ -66,18 +70,24 @@ Steps over Minecraft:
 - `mine`: `target` is a block name. Walks to the nearest visible one (20 s), digs it with the fastest held tool, then
   waits up to 3 s for the drop. `output` is `{block_removed, collected}`. `block_removed` is read after that wait, so
   a dig the server refused shows as `false`. `collected` is the inventory delta. `ok` equals `block_removed`.
-- `craft`, `probe`: `grid` is a count map `{"planks": 4}` or rows `[["planks"], ["planks"]]` with `null` for an empty
-  cell. A count map fills one item per cell, left to right and top to bottom. That only crafts shapeless and
-  full-square recipes. Stick, torch, the pickaxes, furnace, and ladder are shaped in 1.16.5 and need rows. Two planks
-  side by side craft a pressure plate. A grid that fits 2x2 uses the inventory grid. A larger one uses the nearest
-  crafting table within 4 blocks, walking to one within 16. `craft` takes the result once and reports the observed
-  inventory delta, consumption negative: `{"planks": -2, "stick": 4}`. It returns `ok: false` and `"output slot
-  empty"` when the server computed no result. `probe` reports the result slot, `{}` when empty, and puts everything
-  back.
+- `place`: `target` is a held block, such as `crafting_table`. Places it on the first horizontally adjacent cell at
+  foot level that is free, has a solid block below, and does not overlap the bot. `ok` is true once the server shows
+  the block there. `output` is its `{x, y, z}`. With no such cell, or when the server refuses, `ok` is false with a
+  message.
+- `craft`, `probe`: `grid` is a count map `{"planks": 2}` or rows `[["planks"], ["planks"]]` with `null` for an empty
+  cell. A count map whose ingredient multiset matches a vanilla shape in `craft.mjs` takes that shape: planks, stick,
+  crafting table, torch, wooden and stone pickaxe, furnace, ladder. Any other count map fills one item per cell, left
+  to right and top to bottom. Rows set the shape outright. A grid that fits 2x2 uses the inventory grid. A larger one
+  uses the nearest crafting table within 4 blocks, walking to one within 16. Crafting never places a table; `place`
+  one first. `craft` takes the result once and reports the observed inventory delta, consumption negative:
+  `{"planks": -2, "stick": 4}`. It returns `ok: false` and `"output slot empty"` when the server computed no result.
+  `probe` reports the result slot, `{}` when empty, and puts everything back.
 - `events` lists `death`, `damage` (the bot was hurt), and `kicked` seen during the step.
 - Every step is bounded at 60 s. A timeout or an error inside the step is `ok: false` with a message.
 
-There is no `place` action. A 3x3 craft needs a crafting table already standing within 16 blocks.
+The shape table is shape knowledge only, so that two planks go one above the other and do not craft a pressure plate.
+It says nothing about what a grid produces: the server decides that. The change datapacks are shapeless, so any
+layout of their ingredients matches them.
 
 ## Datapacks and `/reload`
 
@@ -103,6 +113,7 @@ Crafting never reads recipe data. These are the only Mineflayer calls on the cra
 | `bot.putAway(0)` | `craft` only: take the result once and store it |
 | `bot.putAway(slot)` | Move grid leftovers back |
 
+Where each ingredient goes comes from `slotsFor` in `craft.mjs`, which reads only the request and the shape table.
 The result is read from `window.slots[0]`, which holds what the server sent for the result slot after the last
 confirmed click. `craft` then clears the consumed grid slots locally with `window.updateSlot`, because 1.16.5 servers
 do not resend them. The delta comes from `bot.inventory.items()`. The code never calls `bot.recipesFor`,

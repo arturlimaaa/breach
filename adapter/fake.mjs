@@ -9,6 +9,7 @@ export class FakeWorld {
 
   async reset (inventory) {
     this.#items = { ...inventory }
+    return ['/clear', ...Object.entries(inventory).map(([item, n]) => `/give @s ${item} ${n}`)].join('; ')
   }
 
   position () {

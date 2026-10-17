@@ -3,7 +3,8 @@ import { createServer } from 'node:http'
 import { text } from 'node:stream/consumers'
 import { createBot, MineflayerWorld } from './world.mjs'
 
-// The adapter contract of docs/design.md over a World: reset(inventory), position(), inventory(), visible(), act(step).
+// The adapter contract of docs/design.md over a World: reset(inventory) returning the commands it issued, position(),
+// inventory(), visible(), act(step).
 export function serve (world) {
   let task = null
   let actions = 0
@@ -28,10 +29,10 @@ export function serve (world) {
     'POST /reset': async body => {
       const next = body?.task
       if (typeof next?.goal !== 'string') return [400, { error: 'body must be {task: {goal, count, budget, inventory}}' }]
-      await world.reset(next.inventory ?? {})
+      const message = await world.reset(next.inventory ?? {})
       task = { count: 1, budget: 150, ...next }
       actions = 0
-      return [200, observation()]
+      return [200, { ...observation(), message }]
     },
     'GET /observe': async () => [200, observation()],
     'POST /step': async step => {

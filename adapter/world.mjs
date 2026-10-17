@@ -2,7 +2,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { isDeepStrictEqual } from 'node:util'
 import mineflayer from 'mineflayer'
 import pathfinderPlugin from 'mineflayer-pathfinder'
-import { clear, normalize, place, slotsFor } from './craft.mjs'
+import { Vec3 } from 'vec3'
+import { clear, fill, normalize, slotsFor } from './craft.mjs'
 
 const { pathfinder, Movements, goals } = pathfinderPlugin
 const STEP_MS = 60_000
@@ -44,6 +45,7 @@ export class MineflayerWorld {
     this.stepMs = stepMs
   }
 
+  // Returns the commands issued, so a run manifest can record the start state.
   // ponytail: clears and refills the inventory only; restart the server from the saved world for fresh blocks.
   async reset (inventory) {
     const { bot } = this
@@ -53,10 +55,12 @@ export class MineflayerWorld {
     if (!await settle(() => bot.inventory.items().length === 0, RESET_MS)) {
       throw new Error('/clear did not land; the bot needs op level 2')
     }
-    for (const [item, n] of Object.entries(inventory)) bot.chat(`/give @s ${GIVE.get(item) ?? item} ${n}`)
+    const gives = Object.entries(inventory).map(([item, n]) => `/give @s ${GIVE.get(item) ?? item} ${n}`)
+    for (const give of gives) bot.chat(give)
     if (!await settle(() => isDeepStrictEqual(this.inventory(), inventory), RESET_MS)) {
       throw new Error(`inventory is ${JSON.stringify(this.inventory())} after /give`)
     }
+    return ['/clear', ...gives].join('; ')
   }
 
   position () {
@@ -98,6 +102,7 @@ export class MineflayerWorld {
       case 'move': return this.#move(target)
       case 'look': return { ok: true, message: `${this.#inSight().length} blocks in sight` }
       case 'mine': return this.#mine(target)
+      case 'place': return this.#place(target)
       case 'craft': return this.#craft(grid)
       case 'probe': return this.#probe(grid)
       default: throw new Error('unknown action')
@@ -136,6 +141,25 @@ export class MineflayerWorld {
       message: removed ? `mined ${target}` : `${target} is still there`,
       output: { block_removed: removed, collected: diff(before, this.inventory()) }
     }
+  }
+
+  async #place (target) {
+    const { bot } = this
+    const item = bot.inventory.items().find(stack => normalize(stack.name) === target)
+    if (!item) throw new Error(`no ${target} held`)
+    const { position } = bot.entity
+    const feet = position.floored()
+    // The block must not overlap the bot, whose 0.6-wide box can reach 0.15 into a neighboring cell.
+    const spot = [...DIRECTIONS.values()].map(([dx, dz]) => feet.offset(dx, 0, dz)).find(at =>
+      bot.blockAt(at)?.boundingBox === 'empty' &&
+      bot.blockAt(at.offset(0, -1, 0))?.boundingBox === 'block' &&
+      Math.max(Math.abs(at.x + 0.5 - position.x), Math.abs(at.z + 0.5 - position.z)) >= 0.8)
+    if (!spot) throw new Error(`no adjacent solid spot for ${target}`)
+    await bot.equip(item, 'hand')
+    // placeBlock resolves only once the server shows the new block there.
+    await bot.placeBlock(bot.blockAt(spot.offset(0, -1, 0)), new Vec3(0, 1, 0))
+    const { x, y, z } = spot
+    return { ok: true, message: `placed ${target} at ${x},${y},${z}`, output: { x, y, z } }
   }
 
   async #craft (grid) {
@@ -181,16 +205,16 @@ export class MineflayerWorld {
     return short.length ? Object.fromEntries(short.map(([item, n]) => [item, n - (have[item] ?? 0)])) : null
   }
 
-  // Places the layout in the inventory's 2x2 grid or the nearest table's 3x3 grid, runs `use` on the window,
+  // Fills the layout into the inventory's 2x2 grid or the nearest table's 3x3 grid, runs `use` on the window,
   // then moves leftovers back. A 1.16.5 server sends the result slot before confirming the click that changed the grid,
-  // so the window holds the server's result once `place` returns.
+  // so the window holds the server's result once `fill` returns. Crafting never places a table; `place` does.
   async #atGrid ({ size, slots }, use) {
     const { bot } = this
     if (bot.currentWindow) await bot.closeWindow(bot.currentWindow)
     const window = size === 2 ? bot.inventory : await this.#openTable()
     try {
       await clear(bot, window, size)
-      await place(bot, window, slots)
+      await fill(bot, window, slots)
       return await use(window)
     } finally {
       await clear(bot, window, size)

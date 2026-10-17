@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
-import { normalize, place, slotsFor } from '../craft.mjs'
+import { fill, normalize, slotsFor } from '../craft.mjs'
 
 const PICKAXE = [['planks', 'planks', 'planks'], [null, 'stick', null], [null, 'stick', null]]
 
@@ -37,14 +37,41 @@ function fakeBot (stacks) {
   }
 }
 
-test('a count map fills a 2x2 grid left to right, top to bottom', () => {
-  assert.deepEqual(slotsFor({ planks: 4 }, 2), [[1, 'planks'], [2, 'planks'], [3, 'planks'], [4, 'planks']])
+test('a count map with no vanilla shape fills a 2x2 grid left to right, top to bottom', () => {
+  assert.deepEqual(slotsFor({ planks: 2, coal: 1 }, 2), [[1, 'planks'], [2, 'planks'], [3, 'coal']])
 })
 
-test('a count map fills a 3x3 grid left to right, top to bottom', () => {
+test('a count map with no vanilla shape fills a 3x3 grid left to right, top to bottom', () => {
   assert.deepEqual(
-    slotsFor({ cobblestone: 3, stick: 2 }, 3),
-    [[1, 'cobblestone'], [2, 'cobblestone'], [3, 'cobblestone'], [4, 'stick'], [5, 'stick']]
+    slotsFor({ cobblestone: 4, stick: 1 }, 3),
+    [[1, 'cobblestone'], [2, 'cobblestone'], [3, 'cobblestone'], [4, 'cobblestone'], [5, 'stick']]
+  )
+})
+
+test('a count map with a vanilla multiset takes that shape, whatever its key order', () => {
+  const slots = grid => slotsFor(grid, 2) ?? slotsFor(grid, 3)
+  const cells = grid => slots(grid).map(([slot]) => slot)
+  assert.deepEqual(
+    {
+      planks: cells({ log: 1 }),
+      stick: cells({ planks: 2 }),
+      crafting_table: cells({ planks: 4 }),
+      torch: slots({ stick: 1, coal: 1 }),
+      wooden_pickaxe: slots({ stick: 2, planks: 3 }),
+      stone_pickaxe: cells({ cobblestone: 3, stick: 2 }),
+      furnace: cells({ cobblestone: 8 }),
+      ladder: cells({ stick: 7 })
+    },
+    {
+      planks: [1],
+      stick: [1, 3],
+      crafting_table: [1, 2, 3, 4],
+      torch: [[1, 'coal'], [3, 'stick']],
+      wooden_pickaxe: [[1, 'planks'], [2, 'planks'], [3, 'planks'], [5, 'stick'], [8, 'stick']],
+      stone_pickaxe: [1, 2, 3, 5, 8],
+      furnace: [1, 2, 3, 4, 6, 7, 8, 9],
+      ladder: [1, 3, 4, 5, 6, 7, 9]
+    }
   )
 })
 
@@ -70,9 +97,9 @@ test('wood variants take generic names and other ids stay', () => {
   )
 })
 
-test('placing puts one item per slot, switching stacks by generic name, then returns the cursor', async () => {
+test('filling puts one item per slot, switching stacks by generic name, then returns the cursor', async () => {
   const bot = fakeBot([[36, 'oak_planks', 1], [37, 'birch_planks', 3], [38, 'stick', 3]])
-  await place(bot, bot.inventory, slotsFor(PICKAXE, 3))
+  await fill(bot, bot.inventory, slotsFor(PICKAXE, 3))
   assert.deepEqual(bot.clicks, [[36, 0], [1, 1], [37, 0], [2, 1], [3, 1], [38, 0], [5, 1], [8, 1], 'cursor back'])
 })
 

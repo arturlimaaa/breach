@@ -19,10 +19,11 @@ async function start (t) {
 
 const task = (fields) => ({ task: { task_id: 't', goal: 'log', count: 2, budget: 3, inventory: { planks: 4 }, ...fields } })
 
-test('reset returns the observation of the task start', async (t) => {
+test('reset returns the observation of the task start and the commands that set it up', async (t) => {
   const call = await start(t)
   const { body } = await call('POST', '/reset', task())
   assert.deepEqual(body, {
+    message: '/clear; /give @s planks 4',
     server: 'fake/flat',
     position: { x: 0, y: 64, z: 0 },
     inventory: { planks: 4 },
@@ -58,9 +59,9 @@ test('a step returns its result, events, and the next observation', async (t) =>
 
 test('observe repeats the observation without counting an action', async (t) => {
   const call = await start(t)
-  const reset = await call('POST', '/reset', task())
+  const { body: { message, ...observation } } = await call('POST', '/reset', task())
   const observed = await call('GET', '/observe')
-  assert.deepEqual(observed.body, reset.body)
+  assert.deepEqual(observed.body, observation)
 })
 
 test('holding the goal count ends the episode with success', async (t) => {
