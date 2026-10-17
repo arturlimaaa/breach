@@ -27,6 +27,7 @@ def live(out_dir: Path, url: str, task: Task, system: str) -> Path:
     # ponytail: run_jobs' manifest entry, copied because run_jobs builds GridWorlds; give it a world factory if live runs grow jobs.
     entry = {
         "id": task.task_id, "task": task.task_id, "server": world.server, "change": None, "seed": None,
+        "goal": task.goal, "count": task.count, "inventory": dict(task.inventory),
         "reset": world.reset_message, "success": result.success, "actions": result.actions, "reason": result.reason,
     }
     (out_dir / "manifest.json").write_text(json.dumps({"system": system, "episodes": [entry]}, indent=2) + "\n", encoding="utf-8")
