@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from itertools import chain, count, cycle, islice, repeat
+from pathlib import Path
 
 from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
 from .recover import Induce, adopt, recover
 from .rules import Rule
-from .status import Status, Writer, shown
+from .status import Status, shown, status_file
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
@@ -33,7 +34,7 @@ class Executor:
 
     def __init__(
         self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str,
-        induce: Induce | None = None, check: bool = True, status: Writer | None = None,
+        induce: Induce | None = None, check: bool = True, status_path: Path | None = None,
     ):
         self.world, self.store, self.log, self.episode = world, store, log, episode
         self.induce, self.check = induce, check
@@ -42,7 +43,7 @@ class Executor:
         self.last: Transition | None = None
         self.rounds: Counter[tuple[str, str]] = Counter()
         self.unrecovered: list[str] = []
-        self.status = Status(status)
+        self.status = Status(status_file(status_path) if status_path else None)
 
     def record(self, rule: Rule) -> Rule:
         """This server's record for the rule's key: a candidate revises its record, and the record revises the global rule."""
@@ -218,11 +219,11 @@ def _spiral_legs():
 
 
 def run_episode(
-    world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, status: Writer | None = None,
+    world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, status_path: Path | None = None,
 ) -> EpisodeResult:
-    return Executor(world, store, log, episode, induce, status=status).run()
+    return Executor(world, store, log, episode, induce, status_path=status_path).run()
 
 
-def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, status: Writer | None = None) -> EpisodeResult:
+def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, status_path: Path | None = None) -> EpisodeResult:
     """System C: rules without the step check. It follows each plan to its end and replans only then."""
-    return Executor(world, store, log, episode, check=False, status=status).run()
+    return Executor(world, store, log, episode, check=False, status_path=status_path).run()

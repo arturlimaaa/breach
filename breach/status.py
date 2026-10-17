@@ -20,8 +20,14 @@ Writer = Callable[[dict[str, Any]], None]
 
 
 def status_file(path: Path) -> Writer:
-    """Replace `path` whole on every write, so a poll never reads half a file. One writer per run keeps `started` at the run start."""
-    started = _now()
+    """Replace `path` whole on every write, so a poll never reads half a file.
+
+    `started` is the run start: an episode writing to a run's status file keeps the start an earlier episode wrote.
+    """
+    try:
+        started = json.loads(path.read_text(encoding="utf-8"))["started"]
+    except (OSError, ValueError, KeyError, TypeError):
+        started = _now()
 
     def write(status: dict[str, Any]) -> None:
         tmp = path.with_suffix(".tmp")
