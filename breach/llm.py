@@ -57,7 +57,10 @@ def complete(
     """Return the assistant text. Every call appends one line to $BREACH_RUN_DIR/model_calls.jsonl."""
     base, provider = _provider(env)
     model = env.get("BREACH_LLM_MODEL") or provider["model"]
-    record: dict[str, Any] = {"episode": episode, "step": step, "model": model, "purpose": purpose, "tokens_in": 0, "tokens_out": 0}
+    # The prompt is logged so a call can become a training example (breach.export).
+    record: dict[str, Any] = {
+        "episode": episode, "step": step, "model": model, "purpose": purpose, "messages": messages, "tokens_in": 0, "tokens_out": 0,
+    }
     start = time.perf_counter()
     try:
         headers = _headers(provider, env)

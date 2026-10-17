@@ -115,7 +115,7 @@ class CompleteTests(unittest.TestCase):
         text = complete(MESSAGES, schema={"type": "array"}, transport=transport, env=KEY, episode="hc", step=7, purpose="induce")
         self.assertEqual((text, ["response_format" in body for body in bodies]), ("[]", [True, False]))
 
-    def test_each_call_logs_its_usage_reply_and_reasoning(self):
+    def test_each_call_logs_its_prompt_usage_reply_and_reasoning(self):
         message = {"content": "planks", "reasoning_content": "A log crafts into four planks."}
         text, record = logged({"choices": [{"message": message}], "usage": {"prompt_tokens": 12, "completion_tokens": 3}})
         latency = record.pop("latency_ms")
@@ -125,7 +125,8 @@ class CompleteTests(unittest.TestCase):
                 "planks",
                 {
                     "episode": "t1", "step": 3, "model": "nvidia/nemotron-3-super-120b-a12b", "purpose": "plan",
-                    "tokens_in": 12, "tokens_out": 3, "reply": "planks", "reasoning": "A log crafts into four planks.",
+                    "messages": MESSAGES, "tokens_in": 12, "tokens_out": 3, "reply": "planks",
+                    "reasoning": "A log crafts into four planks.",
                 },
                 int,
             ),
