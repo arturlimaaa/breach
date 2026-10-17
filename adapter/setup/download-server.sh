@@ -29,6 +29,8 @@ cat > server.properties <<EOF
 difficulty=peaceful
 spawn-protection=0
 view-distance=10
+# A starved host stalls a tick past the 60 s default, and the watchdog would kill the server for it.
+max-tick-time=-1
 level-seed=${MC_SEED:-}
 online-mode=false
 server-port=25565
