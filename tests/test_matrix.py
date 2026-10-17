@@ -101,18 +101,18 @@ class PerfectInducerTests(unittest.TestCase):
 
 
 class NemotronWiringTests(unittest.TestCase):
-    def test_llm_sends_ds_inducer_through_llm_complete_into_the_jobs_model_calls(self):
-        # A closed local port: every call fails at once, and llm.complete still logs it.
+    def test_llm_logs_ds_inducer_call_in_the_job_directory_and_a_failed_call_stops_the_run(self):
+        # A closed local port: the call fails at once, and llm.complete still logs it before raising.
         env = {**os.environ, "BREACH_LLM_BASE_URL": "http://127.0.0.1:9/v1", "BREACH_LLM_API_KEY": "test"}
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "llm"
-            subprocess.run(
+            result = subprocess.run(
                 [sys.executable, "-m", "breach.matrix", str(run), "--changes", "stick-count-2", "--seeds", "1", "--systems", "D", "--llm"],
-                cwd=ROOT, env=env, capture_output=True, text=True, check=True,
+                cwd=ROOT, env=env, capture_output=True, text=True,
             )
             calls = [json.loads(line) for line in (run / "D" / "stick-count-2-s1" / "model_calls.jsonl").read_text().splitlines()]
-            counted = sum(e["text_model_calls"] for e in json.loads((run / "proof.json").read_text())["episodes"])
-        self.assertEqual(({c["purpose"] for c in calls}, all("error" in c for c in calls), counted), ({"induce"}, True, len(calls)))
+            proved = (run / "proof.json").exists()
+        self.assertEqual((result.returncode, [(c["purpose"], "error" in c) for c in calls], proved), (1, [("induce", True)], False))
 
 
 class OfflineModelTests(unittest.TestCase):
