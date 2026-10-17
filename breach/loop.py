@@ -99,6 +99,8 @@ class Executor:
                 if self.world.done:
                     break
                 if step.action == "mine" and not self.travel_to(step.target):
+                    if self.world.done:
+                        break
                     return EpisodeResult(False, self.world.actions, f"no reachable {step.target}")
                 if self.world.done:
                     break
