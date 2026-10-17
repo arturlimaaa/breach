@@ -40,6 +40,25 @@ class GridWorldTests(unittest.TestCase):
             (True, {"S": {"block": "log", "distance": 30}, "NE": {"block": "log", "distance": 21}}, {"planks": 2}, 1),
         )
 
+    def test_only_a_step_the_world_refused_before_acting_is_not_executed(self):
+        coal_sticks = replace(VANILLA, recipes={**VANILLA.recipes, "stick": Recipe({"planks": 2, "coal": 1}, 4, None)})
+        pickaxe = {"planks": 3, "stick": 2}
+        cases = [
+            (GridWorld(T1, seed=7), Action("mine", "log")),
+            (GridWorld(T1, seed=7), Action("place", "crafting_table")),
+            (GridWorld(T1, seed=7, inventory={"planks": 1}), Action("craft", "stick", grid={"planks": 2})),
+            (GridWorld(T1, seed=7, inventory={"planks": 1}), Action("probe", "stick", grid={"planks": 2})),
+            (GridWorld(T1, seed=7, inventory=pickaxe), Action("craft", "wooden_pickaxe", grid=pickaxe)),
+            (GridWorld(T1, seed=7, ruleset=coal_sticks, inventory={"planks": 2}), Action("craft", "stick", grid={"planks": 2})),
+            (GridWorld(T1, seed=7, inventory={"planks": 2}), Action("craft", "stick", grid={"planks": 2})),
+        ]
+        outcomes = []
+        for world, action in cases:
+            world.blocks = {}
+            result = world.step(action)
+            outcomes.append((result.ok, result.executed))
+        self.assertEqual(outcomes, [(False, False)] * 5 + [(False, True), (True, True)])
+
     def test_place_puts_a_held_block_on_the_bots_cell_then_on_a_free_neighbour(self):
         world = GridWorld(T1, seed=7, inventory={"crafting_table": 2})
         world.blocks = {(1, 0): "log"}
@@ -56,7 +75,7 @@ class GridWorldTests(unittest.TestCase):
             world.blocks = {} if table is None else {table: "crafting_table"}
             shown = world.step(Action("probe", "wooden_pickaxe", grid={"planks": 3, "stick": 2})).output
             outcomes.append((shown, world.step(Action("craft", "wooden_pickaxe")).ok))
-        self.assertEqual(outcomes, [({}, False), ({}, False), ({"wooden_pickaxe": 1}, True)])
+        self.assertEqual(outcomes, [(None, False), (None, False), ({"wooden_pickaxe": 1}, True)])
 
     def test_stone_needs_a_pickaxe(self):
         world = GridWorld(T1, seed=7)

@@ -65,10 +65,10 @@ class Executor:
         result = self.world.step(action)
         predicted = dict(step.delta) if step else {}
         if action.name == "probe":
-            # A probe consumes nothing; a test probe is checked exactly on what the output slot shows.
-            observed, cls = result.output or {}, "exact"
+            # A probe consumes nothing; a test probe the world ran is checked exactly on what the output slot shows.
+            observed, cls = result.output or {}, "exact" if result.executed else "tolerant"
         else:
-            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.ok)
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target, result.executed)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,

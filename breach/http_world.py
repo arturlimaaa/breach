@@ -44,7 +44,10 @@ class HttpWorld:
         # A move names a direction or the block to path toward.
         target = action.target if action.name != "move" or action.target in DIRECTIONS else {"toward": action.target}
         data = self._call("POST", "/step", {"action": action.name, "target": target, "grid": action.grid})
-        return StepResult(data["ok"], data["message"], data["output"], self._update(data["observation"]), data["events"])
+        # An adapter from before `executed` evaluated every step it answered.
+        return StepResult(
+            data["ok"], data["message"], data["output"], self._update(data["observation"]), data["events"], data.get("executed", True),
+        )
 
     def _update(self, data: dict[str, Any]) -> Observation:
         obs = parse(data)

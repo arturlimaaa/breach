@@ -2,7 +2,8 @@ import { normalize } from './craft.mjs'
 
 // The grid's look (breach/world.py): eight headings, a corridor 7 wide and 48 steps long, searched step by step with
 // the center lane first.
-const HEADINGS = [['N', 0, -1], ['NE', 1, -1], ['E', 1, 0], ['SE', 1, 1], ['S', 0, 1], ['SW', -1, 1], ['W', -1, 0], ['NW', -1, -1]]
+// A diagonal step is one block on each axis, as in the grid; a heading move counts its blocks the same way.
+export const HEADINGS = new Map([['N', [0, -1]], ['NE', [1, -1]], ['E', [1, 0]], ['SE', [1, 1]], ['S', [0, 1]], ['SW', [-1, 1]], ['W', [-1, 0]], ['NW', [-1, -1]]])
 const LANES = [0, -1, 1, -2, 2, -3, 3]
 const LENGTH = 48
 // The grid is flat and the world is not, so each corridor cell is a column searched within 16 of the feet, nearest first.
@@ -15,7 +16,7 @@ const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -
 // with cave_air, so buried stone and cave walls stay out.
 export function glance (nameAt, x0, y0, z0) {
   const seen = {}
-  for (const [heading, dx, dz] of HEADINGS) {
+  for (const [heading, [dx, dz]] of HEADINGS) {
     const nearest = scan(nameAt, x0, y0, z0, dx, dz)
     if (nearest) seen[heading] = nearest
   }

@@ -1,9 +1,11 @@
-import { glance } from './look.mjs'
+import { glance, HEADINGS } from './look.mjs'
 
-// In-memory World with the adapter's interface: a flat block list and a small inventory. It can only mine and look.
+// In-memory World with the adapter's interface: a flat block list and a small inventory. It can only mine, look, and
+// move along a heading, which always reaches its point.
 export class FakeWorld {
   server = 'fake/flat'
   #items = {}
+  #position = { x: 0, y: 64, z: 0 }
 
   constructor (blocks) {
     this.blocks = blocks.map(block => ({ ...block }))
@@ -15,7 +17,7 @@ export class FakeWorld {
   }
 
   position () {
-    return { x: 0, y: 64, z: 0 }
+    return { ...this.#position }
   }
 
   inventory () {
@@ -27,6 +29,11 @@ export class FakeWorld {
   }
 
   async act ({ action, target }) {
+    if (action === 'move' && target?.heading) {
+      const [dx, dz] = HEADINGS.get(target.heading)
+      this.#position = { ...this.#position, x: this.#position.x + dx * target.blocks, z: this.#position.z + dz * target.blocks }
+      return { ok: true, message: `moved ${target.blocks} blocks ${target.heading}`, output: this.position(), events: [], executed: true }
+    }
     if (action === 'look') {
       const { x, y, z } = this.position()
       const seen = glance((bx, by, bz) => this.blocks.find(b => b.x === bx && b.y === by && b.z === bz)?.block ?? 'air', x, y, z)
