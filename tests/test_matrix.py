@@ -100,6 +100,27 @@ class PerfectInducerTests(unittest.TestCase):
         self.assertEqual((latest.is_symlink(), latest.resolve()), (True, self.job_dir.resolve()))
 
 
+class HrSetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        cls.run_dir = Path(tmp.name) / "hr"
+        subprocess.run(
+            [sys.executable, "-m", "breach.matrix", str(cls.run_dir), "--changes", "stick-count-2", "--seeds", "1",
+             "--systems", "D", "--inducer", "perfect", "--sets", "HC", "HR", "HS"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        cls.proof = json.loads((cls.run_dir / "proof.json").read_text())
+
+    def test_hr_is_a_task_set_of_its_own(self):
+        self.assertEqual([(r["system"], r["set"]) for r in self.proof["rows"]], [("D", "worst"), ("D", "HC"), ("D", "HS"), ("D", "HR")])
+
+    def test_the_hr_chains_hs_certifies_the_revision_from_both_episodes_logs(self):
+        store = {r["rule_id"]: r["status"] for r in json.loads((self.run_dir / "D" / "stick-count-2-s1-hr" / "store.json").read_text())}
+        self.assertEqual(store["craft:stick@grid/stick-count-2"], "certified")
+
+
 class NemotronWiringTests(unittest.TestCase):
     def test_llm_logs_ds_inducer_call_in_the_job_directory_and_a_failed_call_stops_the_run(self):
         # A closed local port: the call fails at once, and llm.complete still logs it before raising.

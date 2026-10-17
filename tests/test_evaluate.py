@@ -5,8 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from functools import partial
+
+from breach.changes import apply, benchmark
 from breach.evaluate import certified_vanilla, run_jobs
+from breach.log import Transition
 from breach.loop import EpisodeResult, run_episode
+from breach.matrix import job, perfect
 from breach.proof import proof
 from breach.store import RuleStore
 from breach.tasks import H1, T1
@@ -29,22 +34,33 @@ class EvaluateTests(unittest.TestCase):
         lines = (run / f"{entry['id']}.jsonl").read_text().splitlines()
         self.assertEqual((len(lines), entry["success"]), (entry["actions"], True))
 
+    def test_carried_memory_lets_the_next_episode_certify_a_revision_from_both_episodes_evidence(self):
+        change, goal = next((c, g) for c, g in benchmark() if c.id == "stick-count-2")
+        run = self.tmp / "chain"
+        system = partial(run_episode, induce=perfect(apply(change, VANILLA)))
+        jobs = [job("hc", change, goal, 1), job("hs", change, goal, 1)]
+        run_jobs(system, jobs, partial(certified_vanilla, run / "store.json"), run, carry_memory=True, name="D")
+        store = {r["rule_id"]: r["status"] for r in json.loads((run / "store.json").read_text())}
+        # proof() refuses a log whose length differs from its episode's actions, so the earlier log was read, not copied.
+        self.assertEqual((store["craft:stick@grid/stick-count-2"], len(proof(run)["episodes"])), ("certified", 2))
+
     def test_proof_of_a_vanilla_t1_run_reports_full_success_and_no_contradictions(self):
         worst = proof(run_jobs(run_episode, [T1_JOB], certified_vanilla, self.tmp / "run", name="D"))["rows"][0]
         self.assertEqual((worst["set"], worst["success"], worst["contradicted"]), ("worst", 1.0, 0))
 
-    def test_only_carried_memory_shares_a_store_across_jobs(self):
+    def test_only_carried_memory_shares_a_store_and_the_earlier_logs_across_jobs(self):
         def shared(carry_memory):
             seen = []
 
             def system(world, store, log, episode):
-                seen.append(store)
+                seen.append((store, len(log)))
+                log.append(Transition(episode, 1, world.server, "0", "look", None, None, {}, {}, "ignored", "ignored"))
                 return EpisodeResult(True, 0, "goal")
 
             run_jobs(system, [T1_JOB, H1_JOB], RuleStore, self.tmp / str(carry_memory), carry_memory=carry_memory, name="D")
-            return seen[0] is seen[1]
+            return seen[0][0] is seen[1][0], [prior for _, prior in seen]
 
-        self.assertEqual((shared(True), shared(False)), (True, False))
+        self.assertEqual((shared(True), shared(False)), ((True, [0, 1]), (False, [0, 0])))
 
     def test_the_manifest_records_the_worlds_outcome_not_the_systems_claim(self):
         def liar(world, store, log, episode):
