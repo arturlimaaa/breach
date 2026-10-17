@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import partial
 from itertools import product
 from pathlib import Path
@@ -19,6 +19,7 @@ from .log import TransitionLog
 from .loop import run_episode, run_episode_c
 from .proof import proof, table
 from .recover import Induce
+from .reload import hr_jobs, reloading
 from .store import RuleStore
 from .world import VANILLA, GridWorld, Ruleset, Task, rules_from_ruleset
 
@@ -74,28 +75,40 @@ def job(task_id: str, change: Change, goal: str, seed: int) -> Job:
 
 def matrix(
     out_dir: Path, seeds: list[int], systems: list[str], changes: list[str] | None = None, llm: bool = False, inducer: str | None = None,
+    sets: Sequence[str] = ("HC", "HS"),
 ) -> dict:
-    """HC for every change, seed and system; A, C and D then play the same world again as HS.
+    """HC for every change, seed and system; with "HS" in `sets`, A, C and D then play the same world again.
 
     D carries the store HC left behind into HS. A and C start from scratch: A pays for model calls again, C meets the change again.
+    With "HR", D also plays the change loaded just before its first use, then HS after it, in a chain of its own.
     """
     pairs = [(change, goal) for change, goal in benchmark() if changes is None or change.id in changes]
-    hc_and_hs = [job(task_id, c, goal, s) for (c, goal), s in product(pairs, seeds) for task_id in ("hc", "hs")]
+    after = ["hs"] if "HS" in sets else []
+    hc_then_hs = [job(task_id, c, goal, s) for (c, goal), s in product(pairs, seeds) for task_id in ("hc", *after)]
     out_dir.mkdir(parents=True)
-    if "A" in systems:
-        run_jobs(partial(run_a, out_dir / "A", llm), hc_and_hs, RuleStore, out_dir / "A", name="A")
-    if "B" in systems:
+    if "HC" in sets and "A" in systems:
+        run_jobs(partial(run_a, out_dir / "A", llm), hc_then_hs, RuleStore, out_dir / "A", name="A")
+    if "HC" in sets and "B" in systems:
         run_jobs(run_b, [job("hc", c, goal, s) for (c, goal), s in product(pairs, seeds)], RuleStore, out_dir / "B", name="B")
-    if "C" in systems:
-        run_jobs(run_episode_c, hc_and_hs, certified_vanilla, out_dir / "C", name="C")
+    if "HC" in sets and "C" in systems:
+        run_jobs(run_episode_c, hc_then_hs, certified_vanilla, out_dir / "C", name="C")
     if "D" in systems:
         for (c, goal), s in product(pairs, seeds):
-            run_dir = out_dir / "D" / f"{c.id}-s{s}"
-            system = partial(run_episode, induce=inducer_for(c, run_dir, llm, inducer), status_path=run_dir / "status.json")
-            point_latest(run_dir, out_dir.parent)
-            store = partial(certified_vanilla, run_dir / "store.json")
-            run_jobs(system, [job("hc", c, goal, s), job("hs", c, goal, s)], store, run_dir, carry_memory=True, name="D")
+            if "HC" in sets:
+                d_chain(out_dir, f"{c.id}-s{s}", c, [job(task_id, c, goal, s) for task_id in ("hc", *after)], llm, inducer)
+            if "HR" in sets:
+                # Its HS episode has the HC chain's id, so the HR chain gets a directory of its own.
+                d_chain(out_dir, f"{c.id}-s{s}-hr", c, hr_jobs(c, s)[: 1 + len(after)], llm, inducer, hr=True)
     return proof(out_dir)
+
+
+def d_chain(out_dir: Path, name: str, change: Change, jobs: list[Job], llm: bool, inducer: str | None, hr: bool = False) -> None:
+    """One D agent over `jobs` in out_dir/D/<name>: its store, status and model calls sit beside its manifest."""
+    run_dir = out_dir / "D" / name
+    system = partial(run_episode, induce=inducer_for(change, run_dir, llm, inducer), status_path=run_dir / "status.json")
+    point_latest(run_dir, out_dir.parent)
+    store = partial(certified_vanilla, run_dir / "store.json")
+    run_jobs(reloading(system, change) if hr else system, jobs, store, run_dir, carry_memory=True, name="D")
 
 
 def main() -> None:
@@ -107,8 +120,9 @@ def main() -> None:
     models = parser.add_mutually_exclusive_group()
     models.add_argument("--llm", action="store_true", help="A plans and D induces with Nemotron through breach.llm")
     models.add_argument("--inducer", choices=("perfect",), help="D revises a refuted rule with the changed ruleset's own rule, offline")
+    parser.add_argument("--sets", nargs="+", choices=("HC", "HR", "HS"), default=["HC", "HS"], help="HR runs for D only; HS follows each HC and HR")
     args = parser.parse_args()
-    print(table(matrix(args.out_dir, args.seeds, args.systems, args.changes, args.llm, args.inducer)["rows"]))
+    print(table(matrix(args.out_dir, args.seeds, args.systems, args.changes, args.llm, args.inducer, args.sets)["rows"]))
 
 
 if __name__ == "__main__":

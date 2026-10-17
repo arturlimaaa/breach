@@ -29,18 +29,20 @@ def run_jobs(
 ) -> Path:
     """Run each (task, seed, server, ruleset, change_id) job in order into a new `out_dir`.
 
-    Every job gets a fresh store unless `carry_memory`, which hands the whole job list one store.
+    Every job gets a fresh store unless `carry_memory`, which hands the whole job list one store and each episode
+    the earlier episodes' logs, so a revision can be certified from evidence in two episodes.
     """
     out_dir.mkdir(parents=True)
     shared = store_factory() if carry_memory else None
-    episodes = []
+    episodes, logs = [], []
     for task, seed, server, ruleset, change in jobs:
         episode = "-".join(part for part in (change, task.task_id, f"s{seed}") if part)
         log_path = out_dir / f"{episode}.jsonl"
         log_path.touch(exist_ok=False)  # TransitionLog appends, so a repeated job would merge two episodes
         store = shared if carry_memory else store_factory()
         world = GridWorld(task, seed, ruleset, server=server)
-        result = system(world, store, TransitionLog(log_path), episode)
+        result = system(world, store, TransitionLog(log_path, prior=logs if carry_memory else ()), episode)
+        logs.append(log_path)
         # The world decides the outcome, not the system's report of it; the proof re-derives both from the log.
         episodes.append({
             "id": episode, "task": task.task_id, "server": server, "change": change, "seed": seed,

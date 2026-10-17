@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field
+from itertools import chain
 from pathlib import Path
 
 from .world import Observation
@@ -47,13 +48,16 @@ def verdict(cls: str, predicted: dict[str, int], observed: dict[str, int], ok: b
 
 
 class TransitionLog:
-    """Append-only log, one JSON line per adapter action when a path is given."""
+    """Append-only log, one JSON line per adapter action when a path is given.
 
-    def __init__(self, path: Path | None = None):
+    `prior` names earlier episodes' log files of the same agent: read once, never written, and replayed before
+    this log's own steps, so a certification can count evidence from another episode.
+    """
+
+    def __init__(self, path: Path | None = None, prior: Iterable[Path] = ()):
         self.path = path
-        self._items: list[Transition] = []
-        if path is not None and path.exists():
-            self._items = [Transition(**json.loads(line)) for line in path.read_text(encoding="utf-8").splitlines() if line]
+        self._prior = [t for earlier in prior for t in _read(earlier)]
+        self._items: list[Transition] = _read(path) if path is not None and path.exists() else []
 
     def append(self, transition: Transition) -> None:
         self._items.append(transition)
@@ -62,10 +66,14 @@ class TransitionLog:
                 fh.write(json.dumps(asdict(transition), sort_keys=True) + "\n")
 
     def __iter__(self) -> Iterator[Transition]:
-        return iter(self._items)
+        return chain(self._prior, self._items)
 
     def __len__(self) -> int:
-        return len(self._items)
+        return len(self._prior) + len(self._items)
 
     def contradictions(self) -> list[Transition]:
-        return [t for t in self._items if t.cls == "exact" and t.verdict == "mismatch" and not t.test]
+        return [t for t in self if t.cls == "exact" and t.verdict == "mismatch" and not t.test]
+
+
+def _read(path: Path) -> list[Transition]:
+    return [Transition(**json.loads(line)) for line in path.read_text(encoding="utf-8").splitlines() if line]

@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic, sleep
@@ -69,16 +69,17 @@ def _listing(log: Path, start: int) -> str | None:
     return next((line for line in lines if line.endswith("\n") and "data packs enabled" in line), None)
 
 
-def live(out_dir: Path, url: str, task: Task, system: str, pack: Pack | None = None) -> Path:
+def live(out_dir: Path, url: str, task: Task, system: str, pack: Pack | None = None, prior: Sequence[Path] = ()) -> Path:
     """Writes run_jobs' layout, manifest.json and <episode>.jsonl, with the task id as the episode id.
 
     With a `pack` (HR), the server loads it just before the first step that uses its rule and unloads it when the episode ends.
+    `prior` names earlier runs' logs: certification counts their evidence, and they are never copied into this log.
     """
     world = HttpWorld(url, task)
     if pack is not None:
         world = ReloadBeforeFirstUse(world, pack.change, pack.load)
     out_dir.mkdir(parents=True)
-    log = TransitionLog(out_dir / f"{task.task_id}.jsonl")
+    log = TransitionLog(out_dir / f"{task.task_id}.jsonl", prior=prior)
     try:
         result = SYSTEMS[system](world, certified_vanilla(), log, task.task_id)
     finally:
@@ -108,11 +109,12 @@ def main() -> None:
     episode.add_argument("--change", choices=changes, help="HR: the change's goal from a vanilla start, its datapack loaded just before the first use of its rule")
     parser.add_argument("--server-dir", type=Path, help="with --change: the server directory, e.g. adapter/server; its console is the screen session mc")
     parser.add_argument("--system", choices=SYSTEMS, default="D")
+    parser.add_argument("--prior", nargs="+", type=Path, default=[], help="earlier runs' <episode>.jsonl logs for certification to replay")
     args = parser.parse_args()
     if args.change and args.server_dir is None:
         parser.error("--change needs --server-dir")
     pack = Pack(changes[args.change], args.server_dir) if args.change else None
-    print(live(args.out_dir, args.url, hr_task(pack.change) if pack else TASKS[args.task], args.system, pack))
+    print(live(args.out_dir, args.url, hr_task(pack.change) if pack else TASKS[args.task], args.system, pack, args.prior))
 
 
 if __name__ == "__main__":
