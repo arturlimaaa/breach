@@ -27,13 +27,12 @@ def parse(data: dict[str, Any]) -> Observation:
 class HttpWorld:
     """The adapter behind the world interface the executor and B use. Every observation refreshes the attributes."""
 
-    def __init__(self, base_url: str, task: Task, server: str | None = None):
-        """POST /reset with `task`. `server` relabels the adapter's server, which is the rule scope."""
+    def __init__(self, base_url: str, task: Task):
+        """POST /reset with `task`. The rule scope `server` is the adapter's label, mc/<host>:<port>/<world> live."""
         self.base_url, self.task = base_url.rstrip("/"), task
         self.blocks: dict[Position, str] = {}
         data = self._call("POST", "/reset", {"task": asdict(task)})
         self.reset_message: str = data["message"]  # the commands that set up the start state
-        self.server: str = server or data["server"]
         self._update(data)
 
     def observe(self) -> Observation:
@@ -44,8 +43,9 @@ class HttpWorld:
         return StepResult(data["ok"], data["message"], data["output"], self._update(data["observation"]), data["events"])
 
     def _update(self, data: dict[str, Any]) -> Observation:
-        obs = parse(data | {"server": self.server})
-        self.position, self.actions, self.done, self.success = obs.position, obs.action_count, obs.done, obs.success
+        obs = parse(data)
+        self.server, self.position, self.actions = obs.server, obs.position, obs.action_count
+        self.done, self.success = obs.done, obs.success
         x0, z0 = obs.position
         # Columns out of view stay as last seen; columns in view hold what is visible now.
         # ponytail: the view is the grid's diamond of RADIUS, so a block the adapter cannot see inside it (occluded, or

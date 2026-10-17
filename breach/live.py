@@ -24,11 +24,13 @@ def live(out_dir: Path, url: str, task: Task, system: str) -> Path:
     out_dir.mkdir(parents=True)
     log = TransitionLog(out_dir / f"{task.task_id}.jsonl")
     result = SYSTEMS[system](world, certified_vanilla(), log, task.task_id)
-    # ponytail: run_jobs' manifest entry, copied because run_jobs builds GridWorlds; give it a world factory if live runs grow jobs.
+    # ponytail: a copy of run_jobs' entry, since run_jobs builds GridWorlds; the CLI test catches drift, and a world
+    # factory on run_jobs would end the copy.
+    # Like run_jobs, the outcome is the world's, not the system's claim; the proof re-derives it from the log.
     entry = {
         "id": task.task_id, "task": task.task_id, "server": world.server, "change": None, "seed": None,
         "goal": task.goal, "count": task.count, "inventory": dict(task.inventory),
-        "reset": world.reset_message, "success": result.success, "actions": result.actions, "reason": result.reason,
+        "success": world.success, "actions": world.actions, "reason": result.reason, "reset": world.reset_message,
     }
     (out_dir / "manifest.json").write_text(json.dumps({"system": system, "episodes": [entry]}, indent=2) + "\n", encoding="utf-8")
     return out_dir
