@@ -19,7 +19,6 @@ from .log import TransitionLog
 from .loop import run_episode, run_episode_c
 from .proof import proof, table
 from .recover import Induce
-from .status import status_file
 from .store import RuleStore
 from .world import VANILLA, GridWorld, Ruleset, Task, rules_from_ruleset
 
@@ -93,7 +92,7 @@ def matrix(
         for (c, goal), s in product(pairs, seeds):
             run_dir = out_dir / "D" / f"{c.id}-s{s}"
             # One status writer per job, so `started` stays at the job's start across its HC and HS episodes.
-            system = partial(run_episode, induce=inducer_for(c, run_dir, llm, inducer), status=status_file(run_dir / "status.json"))
+            system = partial(run_episode, induce=inducer_for(c, run_dir, llm, inducer), status_path=run_dir / "status.json")
             point_latest(run_dir, out_dir.parent)
             store = partial(certified_vanilla, run_dir / "store.json")
             run_jobs(system, [job("hc", c, goal, s), job("hs", c, goal, s)], store, run_dir, carry_memory=True, name="D")
