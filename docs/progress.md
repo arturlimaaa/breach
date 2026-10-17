@@ -98,6 +98,11 @@ Crash on 2026-10-17 14:50: the server's watchdog killed it after a 60 s tick
 under CPU starvation (load 232 on 8 cores: a Prism game client, the WebGL
 viewer tab, and parallel lane test runs). Restarted from the saved world.
 Keep one viewer tab open and no game client while lanes run their suites.
+Second crash 16:10, the same watchdog at load 213, one minute after a world
+reset. `max-tick-time=-1` is now set in the live server.properties and in
+`setup/download-server.sh` (bdfefe8), so a stalled tick lags instead of
+killing the server. The adapter exits when the server kicks the bot and is
+restarted by hand after a reset.
 
 Server: the vanilla 1.16.5 server runs from `adapter/server/` (seed 12345,
 offline mode, port 25565, `eula=true` set on 2026-10-17) inside the detached
