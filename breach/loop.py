@@ -15,7 +15,7 @@ from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
 
-# ponytail: 8 legs walk 4 blocks out, 12 with the view; a block farther from the start needs an adapter look that reports headings.
+# ponytail: after a look with no output, 8 legs walk 4 blocks out, 12 with the view; look again if failed looks strand live runs.
 SPIRAL_LEGS = 8
 
 
@@ -109,8 +109,8 @@ class Executor:
     def explore_until(self, block: str) -> bool:
         """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight.
 
-        The adapter's look reports no headings, so on a pathing world a look that does not show the block is followed by the
-        first SPIRAL_LEGS legs of the spiral, and then exploring stops.
+        A look with no output, which is what a failed adapter look returns, is followed by the first SPIRAL_LEGS legs of the
+        spiral, and then exploring stops.
         """
         legs = _spiral_legs()
         while not self.world.done:
@@ -120,7 +120,7 @@ class Executor:
                 dx, dz = HEADINGS[min(sightings, key=sightings.get)]
                 # A diagonal heading alternates its two cardinal moves.
                 path = islice(cycle([d for d, offset in DIRECTIONS.items() if offset in ((dx, 0), (0, dz))]), 8)
-            elif self.world.paths:
+            elif glance.output is None:
                 path = chain.from_iterable(repeat(*leg) for leg in islice(legs, SPIRAL_LEGS))
             else:
                 # ponytail: when nearer blocks mask every heading this is the O(r²) spiral again; head for the emptiest heading if that stalls.
@@ -132,7 +132,7 @@ class Executor:
                 self.observe()
                 if self.nearest(block) is not None:
                     return True
-            if self.world.paths and not sightings:
+            if glance.output is None:
                 return False
         return False
 

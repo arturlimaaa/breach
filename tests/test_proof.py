@@ -199,6 +199,16 @@ class ProofTests(unittest.TestCase):
         [record] = proof(write_run(self.tmp / "retest", "D", [retest], logs, []))["episodes"]
         self.assertEqual((record["immediate_repeat"], record["recovery_latency"]), (0, 3))
 
+    def test_the_same_block_mined_under_the_revision_is_no_repeat_outside_a_test_too(self):
+        revised = {**DROPPED, "id": "stone-drop-nothing-hc-s3", "seed": 3, "actions": 3}
+        logs = {revised["id"]: [
+            step("mine", "stone", "mine:stone", {"cobblestone": 1}, {}, "mismatch"),
+            step("move", "east", None, {}, {}, "match"),
+            step("mine", "stone", "mine:stone@grid/stone-drop-nothing#1", {}, {}, "match"),
+        ]}
+        [record] = proof(write_run(self.tmp / "revised", "D", [revised], logs, []))["episodes"]
+        self.assertEqual((record["immediate_repeat"], record["recovery_latency"]), (0, 2))
+
     def test_cli_writes_proof_json_and_prints_the_worst_case_row_first(self):
         result = subprocess.run([sys.executable, "-m", "breach.proof", str(self.run_dir)], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(
