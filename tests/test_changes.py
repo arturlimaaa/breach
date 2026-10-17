@@ -63,11 +63,14 @@ class ChangeClassTests(unittest.TestCase):
             apply(c, VANILLA)
         self.assertEqual(VANILLA, before)
 
-    def test_the_stick_count_goal_plans_through_the_changed_craft(self):
+    def test_the_stick_count_goal_uses_the_changed_craft_before_its_last_step(self):
         stick_count = change("stick-count-2")
         rules = rules_from_ruleset(apply(stick_count, VANILLA), status="certified")
         steps = plan(goal_for(stick_count), 1, {}, rules, lambda block: 4)
-        self.assertIn("craft:stick", [s.rule_id for s in steps])
+        self.assertIn("craft:stick", [s.rule_id for s in steps[:-1]])
+
+    def test_a_change_no_other_goal_uses_falls_back_to_its_own_output(self):
+        self.assertEqual(goal_for(change("furnace-count-2")), "furnace")
 
     def test_a_log_that_drops_nothing_leaves_no_goal(self):
         self.assertIsNone(goal_for(change("log-drop-nothing")))
@@ -87,7 +90,7 @@ class ChangeClassTests(unittest.TestCase):
             formats = [json.loads(p.read_text())["pack"]["pack_format"] for p in Path(tmp).glob("*/pack.mcmeta")]
             overrides = json_files(tmp)
         over_nine = [name for name, data in overrides.items() if len(data.get("ingredients", ())) > 9]
-        self.assertEqual((formats, len(overrides), over_nine), ([6] * 30, 30, []))
+        self.assertEqual((formats, len(overrides), over_nine), ([6] * 30, 31, []))
 
     def test_datapacks_override_the_oak_recipe_and_loot_table(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -108,6 +111,26 @@ class ChangeClassTests(unittest.TestCase):
                     "pools": [{"rolls": 1, "entries": [planks]}],
                 },
                 "log-drop-nothing/data/minecraft/loot_tables/blocks/oak_log.json": {"type": "minecraft:block", "pools": []},
+            },
+        )
+
+    def test_four_logs_in_a_square_also_disable_vanilla_oak_wood(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_datapack(change("crafting_table-swap-planks-log"), Path(tmp))
+            files = json_files(tmp)
+        self.assertEqual(
+            files,
+            {
+                "data/minecraft/recipes/crafting_table.json": {
+                    "type": "minecraft:crafting_shapeless",
+                    "ingredients": [{"item": "minecraft:oak_log"}] * 4,
+                    "result": {"item": "minecraft:crafting_table", "count": 1},
+                },
+                "data/minecraft/recipes/oak_wood.json": {
+                    "type": "minecraft:crafting_shapeless",
+                    "ingredients": [{"item": "minecraft:barrier"}] * 4,
+                    "result": {"item": "minecraft:oak_wood", "count": 3},
+                },
             },
         )
 

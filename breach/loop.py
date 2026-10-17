@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from itertools import count, cycle, islice, repeat
 
 from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
@@ -9,7 +10,7 @@ from .planner import Step, plan
 from .recover import Induce, recover
 from .store import RuleStore
 from .verify import classify
-from .world import DIRECTIONS, Action, GridWorld, Position
+from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ class Executor:
             del self.known[pos]
         return obs
 
-    def act(self, action: Action, step: Step | None = None) -> Transition:
+    def act(self, action: Action, step: Step | None = None) -> tuple[Transition, StepResult]:
         before = self.observe()
         result = self.world.step(action)
         predicted = dict(step.delta) if step else {}
@@ -62,7 +63,7 @@ class Executor:
             result.ok, result.events,
         )
         self.log.append(transition)
-        return transition
+        return transition, result
 
     def nearest(self, block: str) -> Position | None:
         x0, z0 = self.world.position
@@ -87,18 +88,25 @@ class Executor:
         return self.world.position == target
 
     def explore_until(self, block: str) -> bool:
-        """Square spiral outward until a block of the wanted type is seen."""
-        leg = 1
-        for direction in _cycle(("east", "south", "west", "north")):
-            for _ in range(leg):
+        """Look; walk up to 8 moves along the nearest heading that shows the block, else one spiral leg; repeat until it is in sight."""
+        legs = _spiral_legs()
+        while not self.world.done:
+            _, glance = self.act(Action("look"))
+            sightings = {h: s["distance"] for h, s in (glance.output or {}).items() if s["block"] == block}
+            if sightings:
+                dx, dz = HEADINGS[min(sightings, key=sightings.get)]
+                # A diagonal heading alternates its two cardinal moves.
+                path = islice(cycle([d for d, offset in DIRECTIONS.items() if offset in ((dx, 0), (0, dz))]), 8)
+            else:
+                # ponytail: when nearer blocks mask every heading this is the O(r²) spiral again; head for the emptiest heading if that stalls.
+                path = repeat(*next(legs))
+            for direction in path:
                 if self.world.done:
                     return False
                 self.act(Action("move", direction))
                 self.observe()
                 if self.nearest(block) is not None:
                     return True
-            if direction in ("south", "north"):
-                leg += 1
         return False
 
     def run(self) -> EpisodeResult:
@@ -125,7 +133,7 @@ class Executor:
                 return None if self.world.done else f"no reachable {step.target}"
             if self.world.done:
                 return None
-            transition = self.act(Action(step.action, step.target if step.action == "craft" else None), step)
+            transition, _ = self.act(Action(step.action, step.target if step.action == "craft" else None), step)
             if not self.check:
                 continue
             if transition.cls == "exact" and transition.verdict == "mismatch":
@@ -149,9 +157,11 @@ class Executor:
         return recover(self, rule, transition)
 
 
-def _cycle(items):
-    while True:
-        yield from items
+def _spiral_legs():
+    """Square spiral as (direction, length) legs: 1 east, 1 south, 2 west, 2 north, 3 east, ..."""
+    for n in count(1):
+        for direction in ("east", "south") if n % 2 else ("west", "north"):
+            yield direction, n
 
 
 def run_episode(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None) -> EpisodeResult:

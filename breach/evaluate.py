@@ -35,14 +35,17 @@ def run_jobs(
     shared = store_factory() if carry_memory else None
     episodes = []
     for task, seed, server, ruleset, change in jobs:
-        episode = "-".join(part for part in (task.task_id, change, f"s{seed}") if part)
+        episode = "-".join(part for part in (change, task.task_id, f"s{seed}") if part)
         log_path = out_dir / f"{episode}.jsonl"
         log_path.touch(exist_ok=False)  # TransitionLog appends, so a repeated job would merge two episodes
         store = shared if carry_memory else store_factory()
-        result = system(GridWorld(task, seed, ruleset, server=server), store, TransitionLog(log_path), episode)
+        world = GridWorld(task, seed, ruleset, server=server)
+        result = system(world, store, TransitionLog(log_path), episode)
+        # The world decides the outcome, not the system's report of it; the proof re-derives both from the log.
         episodes.append({
             "id": episode, "task": task.task_id, "server": server, "change": change, "seed": seed,
-            "success": result.success, "actions": result.actions, "reason": result.reason,
+            "goal": task.goal, "count": task.count, "inventory": dict(task.inventory),
+            "success": world.success, "actions": world.actions, "reason": result.reason,
         })
         # Rewritten per episode so a crash keeps the finished episodes provable.
         (out_dir / "manifest.json").write_text(json.dumps({"system": name, "episodes": episodes}, indent=2) + "\n", encoding="utf-8")

@@ -1,23 +1,13 @@
 import unittest
-from collections import Counter
 from dataclasses import replace
 from itertools import pairwise
 
-from breach.baseline_b import COOLDOWN, default_choose, immediate_repeat_rate, run_episode_b
+from breach.baseline_b import COOLDOWN, default_choose, immediate_repeat_rate, run_episode_b, vanilla_plan
 from breach.certify import replay
 from breach.log import Transition, TransitionLog
-from breach.planner import plan
 from breach.tasks import T1, T2
-from breach.world import VANILLA, GridWorld, Recipe, Task, rules_from_ruleset
+from breach.world import VANILLA, GridWorld, Recipe, Task
 from tests.test_loop import Hurt
-
-
-def vanilla_plan(state):
-    """Fake Nemotron: the task goal as objective and the vanilla ingredient tree as targets."""
-    targets = Counter()
-    for step in plan(state["goal"], state["count"], {}, rules_from_ruleset(VANILLA, status="certified"), lambda block: 1):
-        targets.update({item: n for item, n in step.delta.items() if n > 0})
-    return {"objective": state["goal"], "targets": dict(targets)}
 
 
 def changed(item, recipe):
