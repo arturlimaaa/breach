@@ -80,6 +80,10 @@ if (import.meta.main) {
     process.exit(1)
   })
   await once(bot, 'spawn')
+  if (process.env.VIEWER_PORT) {
+    const { default: viewer } = await import('prismarine-viewer')
+    viewer.mineflayer(bot, { port: Number(process.env.VIEWER_PORT), firstPerson: false })
+  }
   const world = new MineflayerWorld(bot, `mc/${host}:${port}/${process.env.MC_WORLD ?? 'world'}`)
   const listen = Number(process.env.PORT ?? 3100)
   serve(world).listen(listen, '127.0.0.1', () => console.log(`adapter on http://127.0.0.1:${listen} for ${world.server}`))
