@@ -39,7 +39,8 @@ class Executor:
         cls = "exact" if step else "tolerant"
         self.steps += 1
         transition = Transition(
-            self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
+            self.episode, self.steps, self.world.server, obs_hash(before), action.name,
+            step.target if step else action.target,
             step.rule_id if step else None, predicted, observed, cls, verdict(cls, predicted, observed, result.ok),
             step.test if step else False,
         )

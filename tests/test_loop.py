@@ -24,7 +24,8 @@ class LoopTests(unittest.TestCase):
     def test_prior_store_reaches_a_wooden_pickaxe_within_budget(self):
         log = TransitionLog()
         result = run_episode(GridWorld(T1, seed=1), certified_store(), log, "t1")
-        self.assertEqual((result.success, len(log) == result.actions, log.contradictions()), (True, True, []))
+        mined = {t.target for t in log if t.action == "mine"}
+        self.assertEqual((result.success, len(log) == result.actions, log.contradictions(), mined), (True, True, [], {"log"}))
 
     def test_partial_inventory_skips_the_crafting_table(self):
         log = TransitionLog()
