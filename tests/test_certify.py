@@ -64,6 +64,64 @@ class CertifyTests(unittest.TestCase):
         )
 
 
+SERVER = "grid/stick-count-2"
+REVISION = Rule(
+    "craft:stick@grid/stick-count-2#1", "craft", "stick", {"planks": -2, "stick": 2},
+    scope=SERVER, source="induced", revision_of="craft:stick@grid/stick-count-2",
+)
+
+
+def stepped(episode, step, action, rule_id, predicted, observed, ok=True, server=SERVER):
+    return Transition(
+        episode, step, server, "", action, "stick", rule_id, predicted, observed, "exact",
+        verdict("exact", predicted, observed, ok), rule_id != STICK.rule_id, ok,
+    )
+
+
+PRE_CHANGE = stepped("e1", 2, "craft", STICK.rule_id, STICK.delta, STICK.delta)
+COUNTEREXAMPLE = stepped("e1", 5, "craft", STICK.rule_id, STICK.delta, REVISION.delta)
+PROBE = stepped("e1", 6, "probe", REVISION.rule_id, REVISION.outputs, REVISION.outputs)
+USE = stepped("e2", 3, "craft", REVISION.rule_id, REVISION.delta, REVISION.delta)
+
+
+def revising(*transitions, siblings=()):
+    store, log = RuleStore(), TransitionLog()
+    for rule in (REVISION, *siblings):
+        store.add(rule)
+    for transition in transitions:
+        log.append(transition)
+    return certify(store, log, REVISION.rule_id)
+
+
+def sibling(n, delta):
+    return replace(REVISION, rule_id=f"craft:stick@grid/stick-count-2#{n}", delta=delta, status="demoted")
+
+
+class ReplayCertifyTests(unittest.TestCase):
+    def test_a_counterexample_and_a_probe_then_a_use_in_another_episode_certify_a_revision(self):
+        certified = replace(REVISION, status="certified", evidence=("e1/5", "e1/6", "e2/3"))
+        self.assertEqual(revising(COUNTEREXAMPLE, PROBE, USE), Certification(certified, "certified"))
+
+    def test_a_pre_change_match_on_the_same_server_blocks_a_revision(self):
+        self.assertEqual(revising(PRE_CHANGE, COUNTEREXAMPLE, PROBE, USE), Certification(REVISION, "contradicted at e1/2"))
+
+    def test_failed_steps_other_servers_and_other_grids_count_neither_way(self):
+        failed = stepped("e1", 4, "craft", STICK.rule_id, STICK.delta, {}, ok=False)
+        elsewhere = stepped("e1", 1, "craft", STICK.rule_id, STICK.delta, STICK.delta, server="grid/vanilla")
+        swapped = sibling(2, {"log": -2, "stick": 4})
+        other_grid = stepped("e1", 7, "probe", swapped.rule_id, swapped.outputs, {})
+        certified = replace(REVISION, status="certified", evidence=("e1/6", "e2/3"))
+        self.assertEqual(
+            revising(elsewhere, failed, PROBE, other_grid, USE, siblings=[swapped]), Certification(certified, "certified"),
+        )
+
+    def test_a_probe_logged_under_another_candidate_counts_for_every_rule_with_its_grid(self):
+        three = sibling(3, {"planks": -2, "stick": 3})
+        probed = stepped("e1", 8, "probe", three.rule_id, three.outputs, REVISION.outputs)
+        certified = replace(REVISION, status="certified", evidence=("e1/8", "e2/3"))
+        self.assertEqual(revising(probed, USE, siblings=[three]), Certification(certified, "certified"))
+
+
 class ReplayTests(unittest.TestCase):
     def test_a_failed_move_replays_as_a_mismatch_and_an_unchecked_probe_as_ignored(self):
         move = Transition("t1", 1, "grid/vanilla", "", "move", "up", None, {}, {}, "tolerant", "mismatch", ok=False)

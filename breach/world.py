@@ -193,7 +193,7 @@ class GridWorld:
         """Place `grid` in the crafting grid, read the output slot, take everything back."""
         grid = action.grid or {}
         if any(self.inventory[k] < v for k, v in grid.items()):
-            return self._result(True, "cannot place what is not held", {})
+            return self._result(False, "cannot place what is not held")
         for item, recipe in self.ruleset.recipes.items():
             if recipe.inputs == grid and not (recipe.station and self.inventory[recipe.station] < 1):
                 return self._result(True, f"output slot shows {recipe.output} {item}", {item: recipe.output})

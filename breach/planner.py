@@ -43,10 +43,11 @@ def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], di
             cost: float | None = 1.0 + (UNKNOWN_DISTANCE if travel is None else travel)
             for inp, n in rule.inputs.items():
                 sub = best(inp, seen | {item})
-                if sub is None:
+                if sub is not None:
+                    cost += n * sub[0]
+                elif held[inp] < n:  # nothing makes it, though what is held can still be spent
                     cost = None
                     break
-                cost += n * sub[0]
             if cost is not None and (choice is None or cost / rule.outputs[item] < choice[0]):
                 choice = (cost / rule.outputs[item], rule)
         return choice
@@ -77,7 +78,7 @@ def plan(goal: str, count: int, inventory: dict[str, int], rules: list[Rule], di
             if any(held[inp] < n for inp, n in rule.inputs.items()):
                 continue  # making a later input spent an earlier one
             held.update(rule.delta)
-            steps.append(Step(rule.rule_id, rule.action, rule.target, dict(rule.delta), rule.near, rule.tool))
+            steps.append(Step(rule.rule_id, rule.action, rule.target, dict(rule.delta), rule.near, rule.tool, rule.status != "certified"))
         return True
 
     return steps if ensure(goal, count) else None

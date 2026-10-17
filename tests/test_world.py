@@ -26,6 +26,11 @@ class GridWorldTests(unittest.TestCase):
         world = GridWorld(T1, seed=7, inventory={"planks": 2, "coal": 1})
         self.assertEqual(world.step(Action("probe", "stick", grid={"planks": 2, "coal": 1})).output, {})
 
+    def test_probe_of_a_grid_not_held_fails_without_showing_a_slot(self):
+        world = GridWorld(T1, seed=7, inventory={"planks": 1})
+        result = world.step(Action("probe", "stick", grid={"planks": 2}))
+        self.assertEqual((result.ok, result.output, dict(world.inventory)), (False, None, {"planks": 1}))
+
     def test_look_reports_the_nearest_block_per_heading_and_omits_empty_headings(self):
         world = GridWorld(T1, seed=7, inventory={"planks": 2})
         world.blocks = {(-2, 30): "log", (1, 40): "stone", (20, -21): "log"}

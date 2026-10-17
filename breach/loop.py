@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from itertools import chain, count, cycle, islice, repeat
 
-from .certify import demote
+from .certify import certify, demote
 from .log import Transition, TransitionLog, diff, obs_hash, verdict
 from .planner import Step, plan
+from .recover import Induce, adopt, recover
+from .rules import Rule
+from .status import Status, Writer, shown
 from .store import RuleStore
 from .verify import classify
 from .world import DIRECTIONS, HEADINGS, Action, GridWorld, Position, StepResult
@@ -22,12 +26,28 @@ class EpisodeResult:
 
 
 class Executor:
-    """Runs plans from the store one step at a time, verifying each step against the next observation."""
+    """Runs plans from the store one step at a time, verifying each step against the next observation.
 
-    def __init__(self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str):
+    With `check` off (system C) every verdict is logged and none is acted on.
+    """
+
+    def __init__(
+        self, world: GridWorld, store: RuleStore, log: TransitionLog, episode: str,
+        induce: Induce | None = None, check: bool = True, status: Writer | None = None,
+    ):
         self.world, self.store, self.log, self.episode = world, store, log, episode
+        self.induce, self.check = induce, check
         self.known: dict[Position, str] = {}
         self.steps = 0
+        self.last: Transition | None = None
+        self.rounds: Counter[tuple[str, str]] = Counter()
+        self.unrecovered: list[str] = []
+        self.status = Status(status)
+
+    def record(self, rule: Rule) -> Rule:
+        """This server's record for the rule's key: a candidate revises its record, and the record revises the global rule."""
+        parent = self.store.rules.get(rule.revision_of or "")
+        return parent if parent is not None and parent.scope == rule.scope else rule
 
     def observe(self):
         obs = self.world.observe()
@@ -40,9 +60,12 @@ class Executor:
     def act(self, action: Action, step: Step | None = None) -> tuple[Transition, StepResult]:
         before = self.observe()
         result = self.world.step(action)
-        observed = diff(before.inventory, result.observation.inventory)
         predicted = dict(step.delta) if step else {}
-        cls = classify(action.name, action.target)
+        if action.name == "probe":
+            # A probe consumes nothing; a test probe is checked exactly on what the output slot shows.
+            observed, cls = result.output or {}, "exact"
+        else:
+            observed, cls = diff(before.inventory, result.observation.inventory), classify(action.name, action.target)
         self.steps += 1
         transition = Transition(
             self.episode, self.steps, self.world.server, obs_hash(before), action.name, action.target,
@@ -51,6 +74,10 @@ class Executor:
             result.ok, result.events,
         )
         self.log.append(transition)
+        self.last = transition
+        if self.status.acted(step):
+            self.status.rule = shown(self.store.rules[step.rule_id])
+        self.status.emit(self)
         return transition, result
 
     def nearest(self, block: str) -> Position | None:
@@ -109,31 +136,78 @@ class Executor:
         return False
 
     def run(self) -> EpisodeResult:
+        reason = self.pursue()
+        self.status.abort()
+        self.status.emit(self)
+        # The world decides the outcome: a refuting step can also meet the goal.
+        return EpisodeResult(self.world.success, self.world.actions, reason)
+
+    def pursue(self) -> str:
+        """Plan and act until the goal or the budget; the reason the episode ends."""
         task = self.world.task
         while not self.world.done:
-            obs = self.observe()
-            steps = plan(task.goal, task.count, dict(obs.inventory), self.store.usable(self.world.server), self.distance)
+            inventory, server = dict(self.observe().inventory), self.world.server
+            steps = plan(task.goal, task.count, inventory, self.store.usable(server), self.distance)
             if steps is None:
-                return EpisodeResult(False, self.world.actions, "no certified plan")
-            for step in steps:
-                if self.world.done:
-                    break
-                if step.action == "mine" and not self.travel_to(step.target):
-                    if self.world.done:
-                        break
-                    return EpisodeResult(False, self.world.actions, f"no reachable {step.target}")
-                if self.world.done:
-                    break
-                grid = {item: -n for item, n in step.delta.items() if n < 0} if step.action == "craft" else None
-                transition, _ = self.act(Action(step.action, step.target, grid), step)
-                if transition.cls == "exact" and transition.verdict == "mismatch":
-                    demote(self.store, step.rule_id, self.world.server)
-                    # ponytail: M2 replaces this return with induction and re-certification.
-                    return EpisodeResult(False, self.world.actions, f"contradiction at {step.rule_id}")
-                # The event may have moved the inventory off the plan; finishing it would blame the next rule.
-                if transition.verdict == "quarantined":
-                    break
-        return EpisodeResult(self.world.success, self.world.actions, "goal" if self.world.success else "budget")
+                steps = plan(task.goal, task.count, inventory, self.store.usable(server, hypotheses=True), self.distance)
+            if steps is None:
+                return self.unrecovered[-1] if self.unrecovered else "no certified plan"
+            self.status.planned(steps)
+            self.status.emit(self)
+            hit = self.execute(steps)
+            reason = self.refuted(hit) if isinstance(hit, Transition) else hit
+            if reason is not None:
+                return reason
+        return "goal" if self.world.success else "budget"
+
+    def execute(self, steps: list[Step]) -> Transition | str | None:
+        """Act out `steps`. Returns the step that refuted its rule, a reason the episode cannot go on, or None to replan."""
+        for step in steps:
+            if self.world.done:
+                return None
+            if step.action == "mine" and not self.travel_to(step.target):
+                return None if self.world.done else f"no reachable {step.target}"
+            if self.world.done:
+                return None
+            grid = {item: -n for item, n in step.delta.items() if n < 0} if step.action == "craft" else None
+            transition, _ = self.act(Action(step.action, step.target, grid), step)
+            if not self.check:
+                continue
+            if transition.cls == "exact" and transition.verdict == "mismatch":
+                return transition
+            # The event may have moved the inventory off the plan; finishing it would blame the next rule.
+            if transition.verdict == "quarantined":
+                return None
+            if step.test and transition.verdict == "match" and self.confirmed(step.rule_id):
+                return None
+        return None
+
+    def confirmed(self, rule_id: str) -> bool:
+        """A test step matched: a candidate becomes its record, then the record certifies if the log allows. True when the plan is stale."""
+        rule = self.store.rules[rule_id]
+        record = self.record(rule)
+        if record is not rule:
+            adopt(self.store, rule)
+        certification = certify(self.store, self.log, record.rule_id)
+        self.status.rule = shown(certification.rule, certification.reason)
+        self.status.emit(self)
+        # An adopted candidate plans under its record from now on, and a certified rule as an ordinary step.
+        return record is not rule or certification.reason == "certified"
+
+    def refuted(self, transition: Transition) -> str | None:
+        """Demote the refuted rule on this server, then recover its record. Without an inducer a refuted certified rule ends the episode."""
+        demoted = demote(self.store, transition.rule_id, self.world.server)
+        record = self.record(demoted)
+        self.status.abort()
+        self.status.rule = shown(record, f"contradicted at {transition.episode}/{transition.step}")
+        self.status.emit(self)
+        if self.induce is None:
+            return None if transition.test else f"contradiction at {transition.rule_id}"
+        # Candidates a round left untested when the budget ran out get tested by planning before the model is asked again.
+        if any(r.key == record.key and r.status == "hypothesis" for r in self.store.usable(self.world.server, hypotheses=True)):
+            return None
+        # Recovery runs even when the refuting step met the goal, so the next task on this server finds a tested revision.
+        return recover(self, record, transition)
 
 
 def _spiral_legs():
@@ -143,5 +217,12 @@ def _spiral_legs():
             yield direction, n
 
 
-def run_episode(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str) -> EpisodeResult:
-    return Executor(world, store, log, episode).run()
+def run_episode(
+    world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, induce: Induce | None = None, status: Writer | None = None,
+) -> EpisodeResult:
+    return Executor(world, store, log, episode, induce, status=status).run()
+
+
+def run_episode_c(world: GridWorld, store: RuleStore, log: TransitionLog, episode: str, status: Writer | None = None) -> EpisodeResult:
+    """System C: rules without the step check. It follows each plan to its end and replans only then."""
+    return Executor(world, store, log, episode, check=False, status=status).run()
