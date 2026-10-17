@@ -45,6 +45,12 @@ Tooling: the Playwright MCP browser is shared between every agent in the
 session and can only write under /Users/artur/schema-voyager; agents take
 screenshots with a headless Chrome and a throwaway profile in their scratchpad.
 
+Client: Prism Launcher 11.1.1 is installed with two 1.16.5 instances
+(`breach-me` for the operator, `breach-agent` for the spectator or second
+client), both auto-joining localhost:25565; the Microsoft sign-in is the
+operator's step before any launch. The bot viewer runs at
+http://127.0.0.1:3007 while the adapter is started with VIEWER_PORT=3007.
+
 Server: the vanilla 1.16.5 server runs from `adapter/server/` (seed 12345,
 offline mode, port 25565, `eula=true` set on 2026-10-17) inside the detached
 screen session `mc`; console commands via `screen -S mc -X stuff 'cmd\n'`.
